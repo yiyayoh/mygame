@@ -1,0 +1,7 @@
+; 入口场景：初始化变量后进入序章
+setVar:aff_bai=0;
+setVar:aff_su=0;
+setVar:clue=0;
+changeBg:black.png -next;
+getUserInput:me -title=请输入主角的名字 -buttonText=确定 -defaultValue=陆远;
+changeScene:prologue.txt;
