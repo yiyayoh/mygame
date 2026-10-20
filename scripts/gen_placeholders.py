@@ -1,6 +1,6 @@
-"""生成占位美术素材（背景 + 角色立绘）。
+"""生成占位背景图。（角色立绘见 scripts/sprites/）
 
-正式美术到位后，直接用同名文件覆盖 game/background 与 game/figure 下的图片即可，
+正式美术到位后，直接用同名文件覆盖 game/background 下的图片即可，
 脚本无需改动。用法：python3 scripts/gen_placeholders.py
 """
 from pathlib import Path
@@ -9,10 +9,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 BG_DIR = ROOT / "game" / "background"
-FIG_DIR = ROOT / "game" / "figure"
 
 BG_SIZE = (1920, 1080)
-FIG_SIZE = (900, 1440)
 SS = 2  # 超采样倍数，让线条边缘更平滑
 
 FONT_CANDIDATES = [
@@ -174,89 +172,8 @@ def bg_black():
     Image.new("RGB", BG_SIZE, (8, 8, 12)).save(BG_DIR / "black.png", optimize=True)
 
 
-# ---------- 立绘 ----------
-
-def figure(name, hair, uniform, accent, expression, long_hair, display):
-    w, h = FIG_SIZE[0] * SS, FIG_SIZE[1] * SS
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    cx = w / 2
-    skin = (255, 228, 210)
-    head_r = w * 0.17
-    head_cy = h * 0.22
-
-    if long_hair:  # 长发垂在身后
-        d.rounded_rectangle([cx - head_r * 1.25, head_cy - head_r * 0.6, cx + head_r * 1.25, h * 0.62], 120, fill=hair)
-    # 身体
-    d.polygon([(cx - w * 0.16, h * 0.36), (cx + w * 0.16, h * 0.36), (cx + w * 0.32, h), (cx - w * 0.32, h)], fill=uniform)
-    d.polygon([(cx - w * 0.08, h * 0.36), (cx + w * 0.08, h * 0.36), (cx, h * 0.47)], fill=(250, 250, 250))  # 衣领
-    d.polygon([(cx - w * 0.03, h * 0.42), (cx + w * 0.03, h * 0.42), (cx + w * 0.045, h * 0.52), (cx - w * 0.045, h * 0.52)], fill=accent)  # 领结
-    d.rectangle([cx - w * 0.05, h * 0.31, cx + w * 0.05, h * 0.37], fill=skin)  # 脖子
-    d.ellipse([cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r * 1.1], fill=skin)
-    # 刘海
-    d.chord([cx - head_r * 1.1, head_cy - head_r * 1.15, cx + head_r * 1.1, head_cy + head_r * 0.6], 180, 360, fill=hair)
-    if not long_hair:  # 短发两侧
-        d.ellipse([cx - head_r * 1.15, head_cy - head_r * 0.6, cx - head_r * 0.7, head_cy + head_r * 0.9], fill=hair)
-        d.ellipse([cx + head_r * 0.7, head_cy - head_r * 0.6, cx + head_r * 1.15, head_cy + head_r * 0.9], fill=hair)
-        d.ellipse([cx + head_r * 0.45, head_cy - head_r * 0.75, cx + head_r * 0.75, head_cy - head_r * 0.45], fill=accent)  # 发夹
-
-    # 表情
-    ey = head_cy + head_r * 0.15
-    ex = head_r * 0.42
-    er = head_r * 0.13
-    eye = (60, 50, 70)
-    for sx in (-1, 1):
-        x = cx + sx * ex
-        if expression == "smile":
-            d.arc([x - er, ey - er, x + er, ey + er], 200, 340, fill=eye, width=10)
-        elif expression == "surprised":
-            d.ellipse([x - er, ey - er * 1.3, x + er, ey + er * 1.3], fill=eye)
-        elif expression == "sad":
-            d.ellipse([x - er, ey - er * 0.8, x + er, ey + er], fill=eye)
-            d.line([x - er * 1.2, ey - er * 1.8 - sx * 8, x + er * 1.2, ey - er * 1.8 + sx * 8], fill=hair, width=8)
-        elif expression == "pout":
-            d.line([x - er, ey, x + er, ey], fill=eye, width=12)
-        else:
-            d.ellipse([x - er, ey - er, x + er, ey + er * 1.1], fill=eye)
-    my = head_cy + head_r * 0.62
-    if expression == "smile":
-        d.arc([cx - 40, my - 40, cx + 40, my + 20], 20, 160, fill=(200, 90, 90), width=10)
-    elif expression == "surprised":
-        d.ellipse([cx - 18, my - 14, cx + 18, my + 22], fill=(200, 90, 90))
-    elif expression in ("sad", "pout"):
-        d.arc([cx - 30, my, cx + 30, my + 40], 200, 340, fill=(200, 90, 90), width=10)
-    else:
-        d.line([cx - 22, my, cx + 22, my], fill=(200, 90, 90), width=8)
-    if expression in ("smile", "pout"):  # 脸红
-        for sx in (-1, 1):
-            x = cx + sx * head_r * 0.6
-            d.ellipse([x - 40, ey + 40, x + 40, ey + 70], fill=(255, 170, 170))
-
-    img = img.resize(FIG_SIZE, Image.LANCZOS)
-    d = ImageDraw.Draw(img)
-    f = font(34)
-    tag = f"占位立绘 · {display}"
-    tw = d.textlength(tag, font=f)
-    d.rounded_rectangle([(FIG_SIZE[0] - tw) / 2 - 16, FIG_SIZE[1] - 90, (FIG_SIZE[0] + tw) / 2 + 16, FIG_SIZE[1] - 36], 10, fill=(0, 0, 0, 150))
-    d.text(((FIG_SIZE[0] - tw) / 2, FIG_SIZE[1] - 84), tag, font=f, fill=(255, 255, 255))
-    img.save(FIG_DIR / name, optimize=True)
-
-
-CHARACTERS = {
-    # 白芷：图书委员，黑长发，安静
-    "baizhi": dict(hair=(34, 30, 44), uniform=(40, 52, 92), accent=(120, 170, 220), long_hair=True, display="白芷"),
-    # 苏晴：摄影社社长，栗色短发，元气
-    "suqing": dict(hair=(160, 96, 60), uniform=(40, 52, 92), accent=(240, 110, 110), long_hair=False, display="苏晴"),
-}
-EXPRESSIONS = {
-    "baizhi": {"normal": "平常", "smile": "微笑", "surprised": "惊讶", "sad": "低落"},
-    "suqing": {"normal": "平常", "smile": "笑", "surprised": "惊讶", "pout": "不满"},
-}
-
-
 def main():
     BG_DIR.mkdir(parents=True, exist_ok=True)
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
     bg_title()
     bg_gate()
     bg_classroom("classroom.png", "2年3班 教室（白天）", (210, 225, 240), (240, 236, 225), (200, 170, 130))
@@ -265,11 +182,6 @@ def main():
     bg_library()
     bg_rooftop()
     bg_black()
-    for key, spec in CHARACTERS.items():
-        for expr, expr_name in EXPRESSIONS[key].items():
-            spec_ = dict(spec)
-            display = spec_.pop("display")
-            figure(f"{key}_{expr}.png", expression=expr, display=f"{display}（{expr_name}）", **spec_)
     print("placeholders generated")
 
 

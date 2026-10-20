@@ -65,7 +65,9 @@
 
 ## 美术素材清单
 
-当前为脚本生成的占位图（`scripts/gen_placeholders.py`），替换时**保持文件名不变**即可。
+- 立绘：`scripts/sprites/characters.mjs` 矢量绘制的日系风格立绘（白芷：黑长直姬发、蓝瞳、蓝色发饰；苏晴：栗色短发、呆毛、琥珀瞳、双色发夹、胸前挂相机）
+- 背景：`scripts/gen_placeholders.py` 生成的占位图
+- 替换为正式美术时**保持文件名不变**即可。
 
 - 背景（1920×1080）：`title` `school_gate` `classroom` `classroom_dusk` `corridor_old` `library` `rooftop` `black`
 - 立绘（约 900×1440，透明背景 PNG）：

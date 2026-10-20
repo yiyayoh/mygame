@@ -7,7 +7,9 @@
 > 可每到周五傍晚 6:07，走廊尽头会多出一间亮着灯的「第七间教室」……
 
 - 剧情设定、角色、章节大纲和结局条件见 [docs/STORY.md](docs/STORY.md)
-- 当前进度：**序章 + 第一章可玩**，美术为占位图
+- 当前进度：**序章 + 第一章可玩**；角色立绘为矢量绘制的日系风格，背景为占位图
+
+![角色立绘](docs/characters.png)
 
 ## 目录结构
 
@@ -22,7 +24,9 @@ docs/STORY.md          剧情设定文档
 scripts/
   webgal.sh            拉取引擎、本地预览、打包
   check_scenes.py      剧本静态检查（标签、场景、素材引用）
-  gen_placeholders.py  生成占位美术
+  sprites/             角色立绘（矢量定义 + 导出 PNG）
+  gen_placeholders.py  生成占位背景
+art/sprites/           立绘 SVG 源文件
 .github/workflows/     推送到 main 后自动部署到 GitHub Pages
 ```
 
@@ -67,9 +71,12 @@ changeScene:ch2.txt;
 注意：台词里的冒号和分号请用全角字符（`：` `；`），半角的会被当成语法。
 完整语法见 [WebGAL 文档](https://docs.openwebgal.com/)。写完后运行 `python3 scripts/check_scenes.py` 检查。
 
-## 替换美术
+## 美术
 
-保持文件名不变，直接覆盖 `game/background/` 和 `game/figure/` 下的图片即可。
+- **角色立绘**由 `scripts/sprites/characters.mjs` 用 SVG 矢量绘制（发型、配色、表情都是参数），
+  修改后运行 `npm install && npm run sprites` 重新导出到 `game/figure/`。
+- **背景**目前是 `scripts/gen_placeholders.py` 生成的占位图。
+- 有正式美术（约稿 / AI 绘图）时，保持文件名不变，直接覆盖 `game/background/` 和 `game/figure/` 下的图片即可。
 素材清单见 [docs/STORY.md](docs/STORY.md#美术素材清单)。
 
 ## 许可

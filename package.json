@@ -1,0 +1,12 @@
+{
+  "name": "mygame",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sprites": "node scripts/sprites/render.mjs",
+    "check": "python3 scripts/check_scenes.py"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
