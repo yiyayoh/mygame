@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第七间教室</title>
+  <meta name="description" content="一部文字推理游戏。雨夜，旧校舍三楼那间不存在的教室里，死了一个老师。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;900&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="rain" aria-hidden="true"></canvas>
+
+  <!-- 标题画面 -->
+  <section id="title-screen" class="overlay show">
+    <div class="title-wrap">
+      <p class="title-pre">文字推理</p>
+      <h1 class="game-title">第七间教室</h1>
+      <p class="title-sub">每到周五傍晚 6:07，旧校舍三楼的尽头，会多出一间亮着灯的教室。</p>
+      <div class="title-menu">
+        <button id="btn-continue" class="btn hidden">继续调查</button>
+        <button id="btn-new" class="btn primary">开始调查</button>
+      </div>
+      <p id="endings-got" class="title-foot"></p>
+    </div>
+  </section>
+
+  <!-- 章节卡 -->
+  <section id="card" class="overlay">
+    <div class="card-inner">
+      <p id="card-title" class="card-title"></p>
+      <p id="card-sub" class="card-sub"></p>
+    </div>
+  </section>
+
+  <!-- 结局 -->
+  <section id="ending" class="overlay">
+    <div class="card-inner">
+      <p class="card-title">END</p>
+      <p id="ending-name" class="ending-name"></p>
+      <p id="ending-sub" class="card-sub"></p>
+      <div id="ending-stats" class="ending-stats"></div>
+      <button id="btn-title" class="btn">回到标题</button>
+    </div>
+  </section>
+
+  <div id="app">
+    <header id="topbar">
+      <div class="where">
+        <span id="chapter-label">第七间教室</span>
+        <span id="when-label"></span>
+      </div>
+      <div class="tools">
+        <button id="btn-notebook" class="tool">线索本 <b id="clue-count">0</b></button>
+        <button id="btn-sound" class="tool" aria-pressed="false">雨声</button>
+        <button id="btn-menu" class="tool">标题</button>
+      </div>
+    </header>
+
+    <main id="log" aria-live="polite"></main>
+
+    <footer id="panel">
+      <div id="next-hint" class="next-hint hidden">▼ 点击继续</div>
+      <div id="controls"></div>
+    </footer>
+  </div>
+
+  <!-- 线索本 -->
+  <section id="notebook" class="modal" role="dialog" aria-modal="true" aria-labelledby="nb-title">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="nb-title">线索本</h2>
+        <button id="nb-close" class="tool">关闭</button>
+      </div>
+      <p id="nb-hint" class="nb-hint"></p>
+      <div id="nb-list"></div>
+    </div>
+  </section>
+
+  <div id="toast"></div>
+
+  <script type="module" src="js/engine.js"></script>
+</body>
+</html>

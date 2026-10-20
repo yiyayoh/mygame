@@ -1,4 +1,3 @@
-engine/
 node_modules/
-__pycache__/
+stuck.png
 .DS_Store

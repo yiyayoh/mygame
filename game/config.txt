@@ -1,5 +1,0 @@
-Game_name:第七间教室;
-Game_key:mygame7th;
-Title_img:title.png;
-Enable_Appreciation:true;
-Enable_Continue:true;
