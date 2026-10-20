@@ -165,6 +165,13 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .clue-name { font-weight: 600; }
 .clue-text { font-size: 14px; color: #bdb7aa; margin: 4px 0 0; line-height: 1.8; }
 .clue .present { margin-left: auto; background: transparent; border: 1px solid var(--lamp-dim); color: var(--lamp); border-radius: 4px; font-size: 13px; padding: 2px 12px; }
+.nb-tabs { padding: 8px 16px 0; margin: 0; }
+.profile-role { font-size: 12px; color: var(--ink-dim); }
+.order-seq { margin: 4px 0 8px; padding-left: 1.6em; color: var(--lamp); font-size: 14px; }
+.order-seq:empty { display: none; }
+.btn.check::before { content: '☐ '; color: var(--ink-dim); }
+.btn.check.picked { border-color: var(--lamp-dim); color: var(--lamp); }
+.btn.check.picked::before { content: '☑ '; color: var(--lamp); }
 .empty { color: var(--ink-dim); text-align: center; padding: 24px 0; }
 
 #toast {

@@ -1,5 +1,5 @@
 // 文字推理游戏引擎：剧情播放、调查（地点 / 人物 / 出示线索）、推理问答、存档。
-import { START, CLUES, SCENES, HUBS, DEDUCTIONS, WRONG_LINES } from './story.js';
+import { START, CLUES, PROFILES, SCENES, HUBS, DEDUCTIONS, WRONG_LINES } from './story.js';
 import { Rain } from './rain.js';
 
 const FAST = new URLSearchParams(location.search).has('fast'); // 自动化测试用：跳过打字和动画
@@ -133,17 +133,16 @@ function toast(text) {
 }
 
 let notebookResolve = null;
-function openNotebook(selectHint) {
-  const list = $('nb-list');
-  list.replaceChildren();
-  $('nb-hint').textContent = selectHint ?? '';
+let notebookTab = 'clues';
+
+function renderClues(list, selecting) {
   if (!state.clues.length) list.appendChild(el('p', 'empty', '还没有任何线索。'));
   for (const id of state.clues) {
     const c = CLUES[id];
     const item = el('div', 'clue');
     const head = el('div', 'clue-head');
     head.append(el('span', 'clue-type', c.type), el('span', 'clue-name', c.name));
-    if (selectHint) {
+    if (selecting) {
       const b = el('button', 'present', '出示');
       b.dataset.clue = id;
       b.addEventListener('click', () => closeNotebook(id));
@@ -152,6 +151,39 @@ function openNotebook(selectHint) {
     item.append(head, el('p', 'clue-text', c.text));
     list.appendChild(item);
   }
+}
+
+// 人物档案：每条记录在拿到对应线索后解锁
+function renderProfiles(list) {
+  for (const p of Object.values(PROFILES)) {
+    const entries = p.entries.filter((e) => hasAll(e.requires));
+    if (!entries.length) continue;
+    const item = el('div', 'clue');
+    const head = el('div', 'clue-head');
+    head.append(el('span', 'clue-name', p.name), el('span', 'profile-role', p.role));
+    item.appendChild(head);
+    for (const e of entries) item.appendChild(el('p', 'clue-text', e.text));
+    list.appendChild(item);
+  }
+}
+
+function openNotebook(selectHint) {
+  const draw = () => {
+    const list = $('nb-list');
+    list.replaceChildren();
+    $('nb-hint').textContent = selectHint ?? '';
+    const tabs = $('nb-tabs');
+    tabs.classList.toggle('hidden', Boolean(selectHint));
+    tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.nbtab === notebookTab));
+    if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint));
+    else renderProfiles(list);
+    list.scrollTop = 0;
+  };
+  $('nb-tabs').onclick = (e) => {
+    const t = e.target.dataset?.nbtab;
+    if (t) { notebookTab = t; draw(); }
+  };
+  draw();
   $('notebook').classList.add('show');
   return new Promise((r) => { notebookResolve = r; });
 }
@@ -295,12 +327,13 @@ function renderHub() {
   const need = hub.goal.requires;
   const got = need.filter(has).length;
   if (got === need.length) {
-    const b = el('button', 'btn primary', '整理线索，开始推理');
+    // goal 可以通往推理，也可以直接通往下一段剧情
+    const b = el('button', 'btn primary', hub.goal.label ?? '整理线索，开始推理');
     b.dataset.goal = '1';
-    b.addEventListener('click', () => enterDeduction(hub.goal.deduction));
+    b.addEventListener('click', () => (hub.goal.deduction ? enterDeduction(hub.goal.deduction) : runScene(hub.goal.scene)));
     controls.appendChild(b);
   } else {
-    controls.appendChild(el('p', 'goal', `推理所需的关键线索：${got} / ${need.length}`));
+    controls.appendChild(el('p', 'goal', `${hub.goal.deduction ? '推理所需的' : '需要找到的'}关键线索：${got} / ${need.length}`));
   }
   settle();
 }
@@ -327,11 +360,15 @@ function askQuestion() {
 
 function renderAnswers(q) {
   controls.replaceChildren();
-  if (q.options) {
+  if (q.order) renderOrder(q);
+  else if (q.multi) renderMulti(q);
+  else if (q.options) {
     q.options.forEach((text, i) => {
       const b = el('button', 'btn', text);
       b.dataset.option = i;
-      b.addEventListener('click', () => answer(q, i === q.answer, b, text));
+      // answer: 'any' 表示没有对错，每个选项有自己的回应
+      const correct = q.answer === 'any' || i === q.answer;
+      b.addEventListener('click', () => answer(q, correct, b, text, q.replies?.[i]));
       controls.appendChild(b);
     });
   } else {
@@ -346,10 +383,69 @@ function renderAnswers(q) {
   settle();
 }
 
-async function answer(q, correct, button, label) {
+// 排序题：q.order 按正确顺序书写，显示时打乱
+function renderOrder(q) {
+  const picked = [];
+  const hint = el('p', 'goal', '按发生的先后顺序，依次点选。');
+  const seq = el('ol', 'order-seq');
+  const grid = el('div', 'grid');
+  const shuffled = q.order.map((text, i) => ({ text, i }));
+  do {
+    for (let k = shuffled.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]];
+    }
+  } while (shuffled.every((x, k) => x.i === k)); // 别恰好是正确顺序
+  for (const { text, i } of shuffled) {
+    const b = el('button', 'btn', text);
+    b.dataset.orderItem = i;
+    b.addEventListener('click', () => {
+      picked.push(i);
+      b.disabled = true;
+      seq.appendChild(el('li', null, text));
+      confirm.disabled = picked.length !== q.order.length;
+      settle();
+    });
+    grid.appendChild(b);
+  }
+  const reset = el('button', 'btn', '重新排列');
+  reset.addEventListener('click', () => renderAnswers(q));
+  const confirm = el('button', 'btn primary', '确定');
+  confirm.dataset.confirm = '1';
+  confirm.disabled = true;
+  confirm.addEventListener('click', () => {
+    const correct = picked.every((v, k) => v === k);
+    answer(q, correct, confirm, `排列：${picked.map((k) => k + 1).join(' → ')}`);
+  });
+  controls.append(hint, seq, grid, reset, confirm);
+}
+
+// 多选题：q.answer 为全部正确选项的序号
+function renderMulti(q) {
+  const picked = new Set();
+  controls.appendChild(el('p', 'goal', '选出所有符合的选项，然后点「确定」。'));
+  q.multi.forEach((text, i) => {
+    const b = el('button', 'btn check', text);
+    b.dataset.option = i;
+    b.addEventListener('click', () => {
+      if (picked.has(i)) picked.delete(i); else picked.add(i);
+      b.classList.toggle('picked', picked.has(i));
+    });
+    controls.appendChild(b);
+  });
+  const confirm = el('button', 'btn primary', '确定');
+  confirm.dataset.confirm = '1';
+  confirm.addEventListener('click', () => {
+    const correct = picked.size === q.answer.length && q.answer.every((i) => picked.has(i));
+    answer(q, correct, confirm, `选择：${[...picked].sort().map((i) => q.multi[i]).join('、') || '（无）'}`);
+  });
+  controls.appendChild(confirm);
+}
+
+async function answer(q, correct, button, label, reply) {
   addLine('sys', `▷ ${label}`);
   if (correct) {
-    await play(q.right ?? []);
+    await play([...(reply ?? []), ...(q.right ?? [])]);
     state.q += 1;
     save();
     askQuestion();

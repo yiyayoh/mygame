@@ -53,10 +53,18 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
     if (await choice.count()) { await shot('choice'); await choice.nth(choiceIndex).click(); continue; }
 
     const s = await state();
-    if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence]').count())) {
+    if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item]').count())) {
       const q = DEDUCTIONS[s.ded].questions[s.q];
       if (!shotTaken.has(s.ded)) { shotTaken.add(s.ded); await shot(`deduction-${s.ded}`); }
-      if (q.options) {
+      if (q.order) {
+        for (let i = 0; i < q.order.length; i++) await page.click(`[data-order-item="${i}"]`);
+        await page.click('[data-confirm]');
+      } else if (q.multi) {
+        for (const i of q.answer) await page.click(`[data-option="${i}"]`);
+        await page.click('[data-confirm]');
+      } else if (q.answer === 'any') {
+        await page.click(`[data-option="${choiceIndex % q.options.length}"]`);
+      } else if (q.options) {
         if (!wrongOnce) { wrongOnce = true; await page.click(`[data-option="${(q.answer + 1) % q.options.length}"]`); continue; }
         await page.click(`[data-option="${q.answer}"]`);
       } else {
@@ -69,7 +77,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 
     if (s?.mode === 'hub' && (await page.locator('[data-tab]').count())) {
       // 第二章开始时刷新一次，测试读档
-      if (s.hub === 'hub2' && !reloaded) {
+      if (s.hub === 'hub3' && !reloaded) {
         reloaded = true;
         await page.reload();
         await page.click('#btn-continue');

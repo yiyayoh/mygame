@@ -1,6 +1,6 @@
 // 剧本数据静态校验：引用是否存在，以及按流程推进时每一章的关键线索是否都拿得到。
 // 用法：node tests/validate.mjs
-import { START, CLUES, SCENES, HUBS, DEDUCTIONS } from '../js/story.js';
+import { START, CLUES, PROFILES, SCENES, HUBS, DEDUCTIONS } from '../js/story.js';
 
 const errors = [];
 const err = (msg) => errors.push(msg);
@@ -25,15 +25,19 @@ for (const [id, h] of Object.entries(HUBS)) {
     for (const [c, lines] of Object.entries(p.present ?? {})) { clueRef(c, `${id}/${p.id} present`); linesRef(lines, `${id}/${p.id} present`); }
   }
   h.goal.requires.forEach((c) => clueRef(c, `${id} goal`));
-  if (!DEDUCTIONS[h.goal.deduction]) err(`${id}: goal 指向不存在的推理 ${h.goal.deduction}`);
+  if (h.goal.deduction ? !DEDUCTIONS[h.goal.deduction] : !SCENES[h.goal.scene]) err(`${id}: goal 指向不存在的推理或场景`);
 }
 
 for (const [id, d] of Object.entries(DEDUCTIONS)) {
   if (!SCENES[d.done]) err(`${id}: done 指向不存在的场景 ${d.done}`);
   d.questions.forEach((q, i) => {
-    if (q.options && (q.answer < 0 || q.answer >= q.options.length)) err(`${id} 第${i + 1}题: answer 越界`);
-    if (!q.options) (q.clue ?? []).forEach((c) => clueRef(c, `${id} 第${i + 1}题`));
-    if (!q.options && !q.clue?.length) err(`${id} 第${i + 1}题: 既没有选项也没有证据答案`);
+    const where = `${id} 第${i + 1}题`;
+    if (q.options && q.answer !== 'any' && !(q.answer >= 0 && q.answer < q.options.length)) err(`${where}: answer 越界`);
+    if (q.answer === 'any' && q.replies && q.replies.length !== q.options.length) err(`${where}: replies 数量和选项不一致`);
+    if (q.multi && !(q.answer.length && q.answer.every((a) => a >= 0 && a < q.multi.length))) err(`${where}: 多选题 answer 不合法`);
+    if (q.order && q.order.length < 2) err(`${where}: 排序题至少要两项`);
+    (q.clue ?? []).forEach((c) => clueRef(c, where));
+    if (!q.options && !q.multi && !q.order && !q.clue?.length) err(`${where}: 没有可作答的内容`);
   });
 }
 
@@ -62,6 +66,7 @@ while (scene && !visited.has(scene)) {
     const missing = h.goal.requires.filter((c) => !owned.has(c));
     if (missing.length) err(`${s.hub}: 关键线索无法取得 ${missing.join(', ')}`);
     dedId = h.goal.deduction;
+    if (!dedId) { scene = h.goal.scene; continue; }
   }
   if (dedId) {
     const d = DEDUCTIONS[dedId];
@@ -73,6 +78,8 @@ while (scene && !visited.has(scene)) {
     scene = s.next ?? s.choices?.[0]?.to;
   }
 }
+
+for (const [id, p] of Object.entries(PROFILES)) p.entries.forEach((e) => e.requires.forEach((c) => clueRef(c, `档案 ${id}`)));
 
 const unreachable = Object.keys(CLUES).filter((c) => !owned.has(c));
 if (unreachable.length) err(`以下线索在主线中无法取得：${unreachable.join(', ')}`);
