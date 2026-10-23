@@ -32,6 +32,7 @@ for (const [id, d] of Object.entries(DEDUCTIONS)) {
   if (!SCENES[d.done]) err(`${id}: done 指向不存在的场景 ${d.done}`);
   d.questions.forEach((q, i) => {
     const where = `${id} 第${i + 1}题`;
+    if (q.wrong) linesRef(q.wrong, `${where} wrong`);
     if (q.options && q.answer !== 'any' && !(q.answer >= 0 && q.answer < q.options.length)) err(`${where}: answer 越界`);
     if (q.answer === 'any' && q.replies && q.replies.length !== q.options.length) err(`${where}: replies 数量和选项不一致`);
     if (q.multi && !(q.answer.length && q.answer.every((a) => a >= 0 && a < q.multi.length))) err(`${where}: 多选题 answer 不合法`);
