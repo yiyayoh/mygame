@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>第七间教室</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <meta name="description" content="一部文字推理游戏。雨夜，旧校舍三楼那间不存在的教室里，死了一个老师。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,6 +23,7 @@
       <div class="title-menu">
         <button id="btn-continue" class="btn hidden">继续调查</button>
         <button id="btn-new" class="btn primary">开始调查</button>
+        <button id="btn-title-settings" class="tool">阅读设置</button>
       </div>
       <p id="endings-got" class="title-foot"></p>
     </div>
@@ -54,12 +56,13 @@
       </div>
       <div class="tools">
         <button id="btn-notebook" class="tool">线索本 <b id="clue-count">0</b></button>
-        <button id="btn-sound" class="tool" aria-pressed="false">雨声</button>
+        <button id="btn-history" class="tool">回看</button>
+        <button id="btn-settings" class="tool">设置</button>
         <button id="btn-menu" class="tool">标题</button>
       </div>
     </header>
 
-    <main id="log" aria-live="polite"></main>
+    <main id="log" aria-live="polite" tabindex="-1"></main>
 
     <footer id="panel">
       <div id="next-hint" class="next-hint hidden">▼ 点击继续</div>
@@ -79,7 +82,51 @@
         <button data-nbtab="people">人物档案</button>
       </div>
       <p id="nb-hint" class="nb-hint"></p>
+      <div id="nb-filters" class="nb-filters">
+        <input id="nb-search" type="search" aria-label="查找已获得的线索" placeholder="查找线索名称或内容" autocomplete="off">
+        <select id="nb-type" aria-label="按线索类别筛选"></select>
+        <p id="nb-count" aria-live="polite"></p>
+      </div>
       <div id="nb-list"></div>
+    </div>
+  </section>
+
+  <section id="history" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-title">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="history-title">对话回看</h2>
+        <button id="history-close" class="tool">关闭</button>
+      </div>
+      <div id="history-list" tabindex="0" aria-label="已经读到的正文"></div>
+    </div>
+  </section>
+
+  <section id="settings" class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="settings-title">阅读设置</h2>
+        <button id="settings-close" class="tool">关闭</button>
+      </div>
+      <div class="settings-body">
+        <label for="setting-speed">文字出现速度</label>
+        <select id="setting-speed">
+          <option value="60">慢</option>
+          <option value="32">标准</option>
+          <option value="16">快</option>
+          <option value="0">整句显示</option>
+        </select>
+        <label for="setting-size">阅读字号</label>
+        <select id="setting-size">
+          <option value="0">默认</option>
+          <option value="16">16</option>
+          <option value="18">18</option>
+          <option value="20">20</option>
+          <option value="22">22</option>
+        </select>
+        <span>背景雨声</span>
+        <button id="btn-sound" class="tool" aria-pressed="false">开启雨声</button>
+        <p class="settings-note">设置会自动记住。点击正文或按空格可显示整句，再次操作继续阅读。</p>
+      </div>
     </div>
   </section>
 

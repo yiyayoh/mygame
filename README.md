@@ -15,6 +15,10 @@
 - **推理**：每章最后回答一组问题，选出答案或者从线索本里出示证据。答错会被记下来，影响最终评价。
 - **推理题型**：单选、出示证据、时间线排序、多选。最后一章还有没有标准答案的提问。
 - **线索本**里有「人物档案」，随着调查逐条解锁每个人的过去。
+- **查找线索**：线索本支持按类别筛选、按名称或内容搜索；出示证据时也能使用。
+- **回看与读档**：回看保留已读的跨章正文，新存档会恢复当前句和最近正文。旧存档仍可使用，但无法补回此前没有记录的正文。
+- **阅读设置**：可调整字号和文字出现速度，雨声开关也在设置里。设置独立保存。
+- 人物的「话题已问完」仍可继续出示线索；「调查没有进展？」只提醒操作方式，不扣评价。
 - 五章正文约三万字、六轮推理、两个结局，通关大约三小时。进度自动保存在浏览器里。
 
 ## 本地运行
@@ -22,7 +26,7 @@
 纯静态网页，不需要安装任何依赖。因为用了 ES Module，需要通过本地服务器打开：
 
 ```bash
-python3 -m http.server 8000
+npm start
 # 浏览器打开 http://localhost:8000
 ```
 
@@ -41,17 +45,24 @@ js/story/clues.js     线索与人物档案
 js/story/ch1~ch5.js   各章的场景、调查、推理（改剧情只需要改这些文件）
 js/engine.js          游戏引擎：播放剧情、调查、出示线索、推理、存档
 js/rain.js            雨的画面和合成雨声
+assets/favicon.svg    网站图标
 docs/DESIGN.md        剧情设计文档（⚠️ 含完整剧透）
 tests/validate.mjs    剧本数据校验
 tests/playthrough.mjs 浏览器自动通关测试
+tests/experience.mjs  阅读恢复、旧存档和界面回归检查
+tests/server.mjs      本地预览与测试服务器
 ```
 
 ## 测试
 
 ```bash
 node tests/validate.mjs          # 检查线索引用、每章关键线索是否都拿得到
-npm install && npm test          # 校验 + 用 Playwright 自动打通两个结局
+npm install
+npx playwright install chromium
+npm test                        # 校验 + 阅读界面回归 + 两条完整通关流程
 ```
+
+已有 Chrome 而无法下载 Playwright 浏览器时，可通过环境变量 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 指定本机浏览器的完整路径。默认仍使用 Playwright 的 Chromium；测试和本地预览只需要 Node，无需 Python。
 
 ## 写剧本速查
 

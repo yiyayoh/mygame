@@ -40,6 +40,7 @@ index.html              页面骨架：标题画面、章节卡、结局画面�
 css/style.css           全部样式（暗色 + 灯光黄的配色，变量定义在 :root）
 js/engine.js            游戏引擎（约 500 行）
 js/rain.js              雨丝动画（canvas）+ Web Audio 合成的雨声
+assets/favicon.svg      网站图标；部署时需一并复制 assets/
 js/story.js             剧本入口：合并各章数据，导出 START / CLUES / PROFILES / SCENES / HUBS / DEDUCTIONS / WRONG_LINES
 js/story/clues.js       全部线索（CLUES）与人物档案（PROFILES）
 js/story/ch1.js         序章「雨」+ 第一章「现场」
@@ -51,6 +52,8 @@ docs/DESIGN.md          剧情设计：主题、人物、真相、时间线、�
 docs/HANDOFF.md         本文档
 tests/validate.mjs      剧本数据静态校验
 tests/playthrough.mjs   Playwright 浏览器自动通关测试
+tests/experience.mjs    阅读恢复、旧存档、界面操作回归检查
+tests/server.mjs        供预览和测试使用的 Node 静态服务器
 package.json            只有 devDependency: playwright；npm test = 校验 + 通关
 .github/workflows/deploy.yml   push 到 main → 跑测试 → 部署到 GitHub Pages
 ```
@@ -59,7 +62,7 @@ package.json            只有 devDependency: playwright；npm test = 校验 + �
 
 ```bash
 # 本地运行（必须走 HTTP，因为用了 ES Module）
-python3 -m http.server 8000
+npm start
 # 打开 http://localhost:8000
 # 加上 ?fast 参数会跳过打字机效果和动画：http://localhost:8000/?fast
 
@@ -77,6 +80,8 @@ node tests/playthrough.mjs ./shots
 **每次改完剧本都必须跑 `node tests/validate.mjs`，提交前跑 `npm test`。**
 
 当前状态：两个测试全部通过，「17 个场景，6 个调查，6 轮推理，48 条线索」，两个结局都能完整打通，读档正常，无页面报错。
+
+2026-10-23 体验优化：新增阅读恢复、回看、筛选和设置回归检查。本地测试可用环境变量 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 指定已安装的 Chrome；不设置时照常使用 Playwright Chromium。测试服务器使用随机端口，不依赖 Python。
 
 ## 5. 剧本数据格式（最重要）
 
@@ -142,7 +147,7 @@ dId: {
   title: '推理 Ⅲ　被压下的声音',
   questions: [
     // 单选
-    { q: '问题', options: ['A', 'B', 'C'], answer: 1, right?: [...lines] },
+    { q: '问题', options: ['A', 'B', 'C'], answer: 1, right?: [...lines], wrong?: [...lines] },
     // 出示证据（数组里任意一条都算对）
     { q: '出示证据。', clue: ['clueA', 'clueB'], right?: [...] },
     // 时间线排序：按「正确顺序」书写，界面上会随机打乱
@@ -157,6 +162,7 @@ dId: {
 ```
 
 答错会让失误次数 +1，搭档宋小满会吐槽一句（`WRONG_LINES`，轮流出现），然后可以重答。
+题目可用 `wrong` 提供针对题意的反馈。事实核对题要明确问已证实的行为；个人态度题使用 `answer: 'any'`，不要把「你认为」写成有唯一标准组合的题目。
 结局画面按失误次数给评价：0 次「名侦探」，≤3「敏锐的刑警」，≤8「刑警」，更多「新人刑警」。
 
 ### 5.5 线索与人物档案（clues.js）
@@ -180,10 +186,13 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 
 ## 6. 引擎要点（engine.js）
 
-- 状态对象 `state`：`{ mode: 'scene'|'hub'|'deduction', scene, hub, ded, q, clues[], done[], mistakes, hubTab, hubSel }`
+- 状态对象保留原有字段，并新增 `version: 2`、`history[]`、`logStart`、`playback`、`sceneComplete`、`chapter`、`when`。`playback` 保存正在阅读的台词列表、当前索引、当前句是否显示以及播放后的动作。
 - 每一步操作后自动存档到 localStorage：`seventh-classroom/save`；已达成的结局存在 `seventh-classroom/endings`
-- 读档时：调查和推理会回到原位；如果存档停在剧情场景里，会**从该场景开头重播**，之前的正文不会恢复
-- 打字机速度 `TYPE_MS = 32` 毫秒/字；点击或按空格、回车：正在打字时直接显示整句，打完后进入下一句
+- 新存档会恢复当前句和最近正文，调查、出示回应及答题反馈中途读档也会接续，完成行动和计分仅执行一次。打字中读档会完整显示当前句，仍需继续操作才到下一句。
+- 旧存档仍兼容，但无法补回原来没保存的正文；旧的剧情存档首次加载仍从当前场景开头开始记录。
+- 「回看」保留已读的跨章正文，章节卡只清空主阅读区，不删除回看。结局后仍按原规则清除可继续的存档。
+- 打字速度默认 32 毫秒/字，可在设置里选慢、标准、快、整句；字号可选默认或 16/18/20/22。设置存在独立的 `seventh-classroom/settings` 中。
+- 点击正文或按空格、回车：正在打字时显示整句，打完后进入下一句；弹窗中不会误推进正文。雨声开关已移入设置，默认仍关闭。
 - `?fast` 参数：打字和等待全部变成 0，供自动化测试用
 - 所有可点击的元素都带 `data-*` 属性（`data-option`、`data-clue`、`data-goal`、`data-action`、`data-target`、`data-present`、`data-order-item`、`data-confirm`、`data-choice`、`data-tab`、`data-back`），**自动通关测试依赖这些属性，改界面时请保留**
 - 结局总数「（共 2 个）」是写死在 `showTitle()` 里的字符串，加结局时要一起改
@@ -197,7 +206,8 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 - 每条线索在主线中都能拿到（不允许有拿不到的死线索）
 
 `tests/playthrough.mjs`：
-- 启动本地服务器，用 Chromium 打开 `?fast`，像玩家一样一路点到结局
+- 启动 Node 本地服务器，用 Chromium 打开 `?fast`，像玩家一样一路点到结局
+- 先调用 `tests/experience.mjs`：验证旧存档、当前句和调查/出示/答题反馈恢复、跨章回看不提前剧透、搜索筛选、提示不扣分、设置持久化及 320/390 像素小屏
 - 第一个推理故意答错一次，并验证结局显示「推理失误：1 次」
 - 进入第三章调查时刷新页面，测试「继续调查」读档
 - 第一遍桌面尺寸选真相结局，第二遍手机尺寸（390×844）选沉默结局
@@ -218,11 +228,11 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 
 按优先级大致排序：
 
-1. **回看（Backlog）**：现在只能往上滚动正文区，章节卡会清空之前的内容，没有专门的对话回看。
-2. **读档恢复正文**：读档后正文区是空的，玩家可能忘了上下文。
-3. **设置项**：打字速度、字号、自动播放都不能调。
-4. **推理提示**：卡住的玩家没有提示机制，可以考虑用宋小满给提示、并扣评价。
-5. **「出示」的引导**：有几条关键线索必须出示才能拿到，见 5.3。需要真人试玩确认会不会卡关。
+1. **回看和正文恢复已完成**：仍需真人试玩确认阅读节奏。新功能无法追溯补回旧存档没有记录的文字。
+2. **阅读设置已完成**：支持字号与打字速度；自动播放尚未实现。
+3. **操作提醒已完成**：「调查没有进展？」只提示查看未读项目或出示线索，不给具体答案，不扣评价。更具体的分级谜题提示尚未实现。
+4. **「出示」的引导已加强**：人物按钮明确写「话题已问完 · 仍可出示线索」，部分关键回应补充操作暗示。仍需真人首次试玩确认难度。
+5. **重复总结已局部删减**：第三、四章结尾减少复述，第五章把责任讨论前的多选题改为证据核对；剧情事实和结局未改动。补充谈话可用 `optional: true` 标明不影响推进。
 6. **新玩法**（第一版时用户表示过兴趣）：
    - 证言对质：逐句质证，找出证词里矛盾的那一句。
    - 更复杂的时间线拼图。

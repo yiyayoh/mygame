@@ -1,29 +1,25 @@
 // 端到端测试：用 Playwright 在真实浏览器里从标题画面一路玩到结局。
 // 会故意答错一次、中途刷新页面测试读档，并分别打通两个结局。
 // 用法：node tests/playthrough.mjs [截图输出目录]
-import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { DEDUCTIONS, HUBS } from '../js/story.js';
+import { startServer } from './server.mjs';
+import { checkExperience } from './experience.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = process.argv[2];
-const PORT = 8765;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
-const server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-await new Promise((r) => setTimeout(r, 800));
-
-const browser = await chromium.launch();
+const server = await startServer();
+const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}).catch(async (e) => { await server.close(); throw e; });
 const errors = [];
 
 async function playOnce(choiceIndex, { mobile = false } = {}) {
   const page = await browser.newPage(mobile ? { viewport: { width: 390, height: 844 } } : { viewport: { width: 1100, height: 800 } });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto(`http://127.0.0.1:${PORT}/index.html?fast`);
+  await page.goto(`${server.url}/index.html?fast`);
   const shot = async (name) => {
     if (!SHOTS) return;
     await page.waitForTimeout(600); // 等淡入动画结束
@@ -43,6 +39,8 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
       await page.waitForTimeout(900);
       await shot('ending');
       const text = await page.locator('#ending').innerText();
+      await page.click('#btn-title');
+      if (await state() || await page.locator('#btn-continue:not(.hidden)').count()) throw new Error('完成流程后不应恢复已经结束的存档');
       await page.close();
       return text;
     }
@@ -76,7 +74,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
     }
 
     if (s?.mode === 'hub' && (await page.locator('[data-tab]').count())) {
-      // 第二章开始时刷新一次，测试读档
+      // 第三章开始时刷新一次，测试读档
       if (s.hub === 'hub3' && !reloaded) {
         reloaded = true;
         await page.reload();
@@ -117,15 +115,16 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 }
 
 try {
+  await checkExperience(browser, server.url, errors);
   const a = await playOnce(0);
-  console.log('结局一：', a.replace(/\s+/g, ' '));
+  console.log('✓ 桌面流程完成');
   const b = await playOnce(1, { mobile: true });
-  console.log('结局二（手机尺寸）：', b.replace(/\s+/g, ' '));
+  console.log('✓ 手机流程完成');
   if (!a.includes('真相结局') || !b.includes('沉默结局')) throw new Error('结局不符合预期');
   if (!a.includes('推理失误：1 次')) throw new Error('失误计数不对');
   if (errors.length) throw new Error(`页面报错：\n${errors.join('\n')}`);
   console.log('✓ 两个结局均可通关，读档正常，无页面报错');
 } finally {
   await browser.close();
-  server.kill();
+  await server.close();
 }

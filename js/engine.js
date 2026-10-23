@@ -3,9 +3,9 @@ import { START, CLUES, PROFILES, SCENES, HUBS, DEDUCTIONS, WRONG_LINES } from '.
 import { Rain } from './rain.js';
 
 const FAST = new URLSearchParams(location.search).has('fast'); // 自动化测试用：跳过打字和动画
-const TYPE_MS = FAST ? 0 : 32;
 const SAVE_KEY = 'seventh-classroom/save';
 const ENDINGS_KEY = 'seventh-classroom/endings';
+const SETTINGS_KEY = 'seventh-classroom/settings';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -27,7 +27,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '' });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -38,17 +38,72 @@ const controls = $('controls');
 const nextHint = $('next-hint');
 let typing = null;   // 正在打字的行：{ finish }
 let waiting = null;  // 等待玩家点击继续的 resolve
+let playbackRun = 0;
+let activeModal = null;
+let modalFocus = null;
+const savedSettings = store.get(SETTINGS_KEY, {});
+const settings = {
+  typeMs: [0, 16, 32, 60].includes(savedSettings.typeMs) ? savedSettings.typeMs : 32,
+  fontSize: [0, 16, 18, 20, 22].includes(savedSettings.fontSize) ? savedSettings.fontSize : 0,
+};
 
 function advance() {
+  if (activeModal || ['title-screen', 'card', 'ending'].some((id) => $(id).classList.contains('show'))) return;
   if (typing) typing.finish();
   else if (waiting) { const w = waiting; waiting = null; w(); }
 }
 log.addEventListener('click', advance);
 nextHint.addEventListener('click', advance);
 document.addEventListener('keydown', (e) => {
-  if ($('notebook').classList.contains('show')) { if (e.key === 'Escape') closeNotebook(null); return; }
-  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); advance(); }
+  if (activeModal) {
+    if (e.key === 'Escape') { e.preventDefault(); activeModal === 'notebook' ? closeNotebook(null) : closeModal(); }
+    else if (e.key === 'Tab') {
+      const nodes = [...$(activeModal).querySelectorAll('button, input, select, [tabindex="0"]')].filter((n) => n.getClientRects().length);
+      const first = nodes[0], last = nodes.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
+    return;
+  }
+  if (e.target.closest('button, input, select, textarea, a')) return;
+  if ((e.key === ' ' || e.key === 'Enter') && (typing || waiting)) { e.preventDefault(); advance(); }
 });
+
+function openModal(id) {
+  if (activeModal) return false;
+  typing?.finish();
+  modalFocus = document.activeElement;
+  activeModal = id;
+  $(id).classList.add('show');
+  $('app').inert = true;
+  $('title-screen').inert = true;
+  $(id).querySelector('button, input, select')?.focus();
+  return true;
+}
+
+function closeModal() {
+  if (!activeModal) return;
+  $(activeModal).classList.remove('show');
+  activeModal = null;
+  $('app').inert = false;
+  $('title-screen').inert = false;
+  if (modalFocus?.isConnected) modalFocus.focus();
+  modalFocus = null;
+}
+
+function applySettings() {
+  if (settings.fontSize) document.documentElement.style.setProperty('--reading-size', `${settings.fontSize}px`);
+  else document.documentElement.style.removeProperty('--reading-size');
+  $('setting-speed').value = String(settings.typeMs);
+  $('setting-size').value = String(settings.fontSize);
+}
+applySettings();
+for (const [id, key] of [['setting-speed', 'typeMs'], ['setting-size', 'fontSize']]) {
+  $(id).addEventListener('change', (e) => { settings[key] = Number(e.target.value); store.set(SETTINGS_KEY, settings); applySettings(); });
+}
+for (const id of ['btn-settings', 'btn-title-settings']) $(id).addEventListener('click', () => openModal('settings'));
+$('settings-close').addEventListener('click', closeModal);
+for (const id of ['history', 'settings']) $(id).addEventListener('click', (e) => { if (e.target.id === id) closeModal(); });
 
 function dimOld() {
   log.querySelectorAll('.line:not(.old)').forEach((n) => n.classList.add('old'));
@@ -61,22 +116,25 @@ function addLine(cls, text) {
   const p = el('p', `line ${cls}`);
   if (text != null) p.textContent = text;
   log.appendChild(p);
+  if (text != null && state) { state.history.push({ cls, text }); save(); }
   scrollDown();
   return p;
 }
 
 function typeInto(node, text) {
   return new Promise((resolve) => {
-    if (!TYPE_MS) { node.textContent = text; resolve(); return; }
+    const typeMs = FAST ? 0 : settings.typeMs;
+    if (!typeMs) { node.textContent = text; resolve(); return; }
     let i = 0;
     const timer = setInterval(() => {
       i += 1;
       node.textContent = text.slice(0, i);
       if (i % 8 === 0) scrollDown();
       if (i >= text.length) done();
-    }, TYPE_MS);
-    function done() { clearInterval(timer); node.textContent = text; typing = null; scrollDown(); resolve(); }
-    typing = { finish: done };
+    }, typeMs);
+    const task = { finish: () => done(true), cancel: () => done(false) };
+    function done(finish) { clearInterval(timer); if (finish) node.textContent = text; if (typing === task) typing = null; scrollDown(); resolve(); }
+    typing = task;
   });
 }
 
@@ -85,32 +143,110 @@ function waitClick() {
   return new Promise((r) => { waiting = () => { nextHint.classList.add('hidden'); r(); }; });
 }
 
-async function sayLine(raw) {
-  dimOld();
+function textLine(raw, container = log) {
   const m = raw.match(/^【(.+?)】([\s\S]*)$/);
   let node;
   if (m) {
     const [, who, text] = m;
     const cls = ['say', who === '我' ? 'me' : '', who.includes('录音') ? 'recorded' : ''].join(' ');
-    const p = addLine(cls);
+    const p = el('p', `line ${cls}`);
     p.appendChild(el('span', 'who', who === '我' ? '夏川' : who));
     node = el('span', 'text');
     p.appendChild(node);
-    await typeInto(node, text);
+    container.appendChild(p);
+    return { node, text };
   } else {
-    node = addLine('');
-    await typeInto(node, raw);
+    node = el('p', 'line');
+    container.appendChild(node);
+    return { node, text: raw };
   }
-  await waitClick();
 }
 
-async function play(lines = []) {
-  controls.replaceChildren();
-  for (const line of lines) {
-    if (typeof line === 'string') await sayLine(line);
-    else if (line.clue) gainClue(line.clue);
-    else if (line.title) await chapterCard(line.title, line.sub);
+function renderEntry(entry, container) {
+  if (entry.raw != null) {
+    const { node, text } = textLine(entry.raw, container);
+    node.textContent = text;
+  } else {
+    const p = el('p', `line ${entry.cls ?? ''}`);
+    if (entry.label) p.appendChild(el('small', null, entry.label));
+    p.appendChild(document.createTextNode(entry.text));
+    container.appendChild(p);
   }
+}
+
+function restoreLog() {
+  log.replaceChildren();
+  for (const entry of state.history.slice(state.logStart)) renderEntry(entry, log);
+  dimOld();
+  log.lastElementChild?.classList.remove('old');
+  settle();
+}
+
+$('btn-history').addEventListener('click', () => {
+  if (!state || !openModal('history')) return;
+  const list = $('history-list');
+  list.replaceChildren();
+  for (const entry of state.history) renderEntry(entry, list);
+  if (!state.history.length) list.appendChild(el('p', 'empty', '还没有读过的正文。'));
+  list.scrollTop = list.scrollHeight;
+});
+$('history-close').addEventListener('click', closeModal);
+
+function cancelPlayback() {
+  playbackRun += 1;
+  typing?.cancel();
+  waiting?.();
+  waiting = null;
+  nextHint.classList.add('hidden');
+  $('card').classList.remove('show');
+}
+
+function play(lines = [], after = { type: 'hub' }) {
+  state.playback = { lines, index: 0, shown: false, after };
+  save();
+  return continuePlayback();
+}
+
+async function continuePlayback() {
+  const run = ++playbackRun;
+  const playback = state.playback;
+  controls.replaceChildren();
+  while (playback.index < playback.lines.length) {
+    if (run !== playbackRun) return;
+    const line = playback.lines[playback.index];
+    if (typeof line === 'string') {
+      if (!playback.shown) {
+        dimOld();
+        const { node, text } = textLine(line);
+        state.history.push({ raw: line });
+        playback.shown = true;
+        save();
+        await typeInto(node, text);
+        if (run !== playbackRun) return;
+      }
+      await waitClick();
+    }
+    else if (line.clue) gainClue(line.clue);
+    else if (line.title) await chapterCard(line.title, line.sub, run);
+    if (run !== playbackRun) return;
+    playback.index += 1;
+    playback.shown = false;
+    save();
+  }
+  state.playback = null;
+  finishPlayback(playback.after);
+}
+
+function finishPlayback(after) {
+  if (after.type === 'scene') return finishScene(after.id);
+  if (after.type === 'action' && !state.done.includes(after.key)) state.done.push(after.key);
+  if (after.type === 'answer') {
+    if (after.correct) { state.q = after.q + 1; save(); return askQuestion(); }
+    save();
+    return renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
+  }
+  save();
+  renderHub();
 }
 
 // ---------------- 线索 ----------------
@@ -136,8 +272,15 @@ let notebookResolve = null;
 let notebookTab = 'clues';
 
 function renderClues(list, selecting) {
-  if (!state.clues.length) list.appendChild(el('p', 'empty', '还没有任何线索。'));
-  for (const id of state.clues) {
+  const search = $('nb-search').value.trim().toLocaleLowerCase();
+  const category = $('nb-type').value;
+  const ids = state.clues.filter((id) => {
+    const clue = CLUES[id];
+    return (!category || clue.type === category) && (!search || `${clue.name} ${clue.type} ${clue.text}`.toLocaleLowerCase().includes(search));
+  });
+  $('nb-count').textContent = `显示 ${ids.length} / ${state.clues.length} 条已获得的线索`;
+  if (!ids.length) list.appendChild(el('p', 'empty', state.clues.length ? '没有匹配的线索，试试其他关键词或类别。' : '还没有任何线索。'));
+  for (const id of ids) {
     const c = CLUES[id];
     const item = el('div', 'clue');
     const head = el('div', 'clue-head');
@@ -168,27 +311,38 @@ function renderProfiles(list) {
 }
 
 function openNotebook(selectHint) {
+  if (!state || !openModal('notebook')) return Promise.resolve(null);
+  $('nb-search').value = '';
+  $('nb-type').replaceChildren(el('option', null, '全部类别'));
+  $('nb-type').firstElementChild.value = '';
+  for (const type of new Set(state.clues.map((id) => CLUES[id].type))) {
+    const option = el('option', null, type);
+    option.value = type;
+    $('nb-type').appendChild(option);
+  }
   const draw = () => {
     const list = $('nb-list');
     list.replaceChildren();
     $('nb-hint').textContent = selectHint ?? '';
     const tabs = $('nb-tabs');
     tabs.classList.toggle('hidden', Boolean(selectHint));
+    $('nb-filters').classList.toggle('hidden', !selectHint && notebookTab !== 'clues');
     tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.nbtab === notebookTab));
     if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint));
     else renderProfiles(list);
     list.scrollTop = 0;
   };
+  $('nb-search').oninput = draw;
+  $('nb-type').onchange = draw;
   $('nb-tabs').onclick = (e) => {
     const t = e.target.dataset?.nbtab;
     if (t) { notebookTab = t; draw(); }
   };
   draw();
-  $('notebook').classList.add('show');
   return new Promise((r) => { notebookResolve = r; });
 }
 function closeNotebook(result) {
-  $('notebook').classList.remove('show');
+  closeModal();
   if (notebookResolve) { const r = notebookResolve; notebookResolve = null; r(result); }
 }
 $('nb-close').addEventListener('click', () => closeNotebook(null));
@@ -196,30 +350,42 @@ $('notebook').addEventListener('click', (e) => { if (e.target.id === 'notebook')
 $('btn-notebook').addEventListener('click', () => openNotebook());
 
 // ---------------- 覆盖层 ----------------
-async function chapterCard(title, sub) {
+async function chapterCard(title, sub, run) {
+  state.chapter = `${title}　${sub ?? ''}`;
+  state.when = '';
+  updateTopbar();
   $('card-title').textContent = title;
   $('card-sub').textContent = sub ?? '';
   $('card').classList.add('show');
   await sleep(2200);
+  if (run !== playbackRun) return;
   $('card').classList.remove('show');
   await sleep(500);
+  if (run !== playbackRun) return;
   log.replaceChildren();
+  state.logStart = state.history.length;
   addLine('divider', `${title}　${sub ?? ''}`);
 }
 
 function updateTopbar() {
   $('clue-count').textContent = state.clues.length;
   const hub = state.hub && HUBS[state.hub];
-  $('chapter-label').textContent = hub ? hub.chapter : '第七间教室';
-  $('when-label').textContent = hub ? hub.when : '';
+  $('chapter-label').textContent = state.chapter || hub?.chapter || '第七间教室';
+  $('when-label').textContent = state.chapter ? state.when : (hub?.when ?? '');
 }
 
 // ---------------- 场景 ----------------
-async function runScene(id) {
-  Object.assign(state, { mode: 'scene', scene: id });
+function runScene(id) {
+  Object.assign(state, { mode: 'scene', scene: id, sceneComplete: false });
   save();
   const s = SCENES[id];
-  await play(s.lines);
+  return play(s.lines, { type: 'scene', id });
+}
+
+function finishScene(id) {
+  state.sceneComplete = true;
+  save();
+  const s = SCENES[id];
   if (s.next) return runScene(s.next);
   if (s.hub) return enterHub(s.hub);
   if (s.deduction) return enterDeduction(s.deduction);
@@ -240,7 +406,7 @@ function showChoices(choices) {
 
 // ---------------- 调查 ----------------
 function enterHub(id) {
-  Object.assign(state, { mode: 'hub', hub: id, hubTab: 'loc', hubSel: null });
+  Object.assign(state, { mode: 'hub', hub: id, hubTab: 'loc', hubSel: null, chapter: HUBS[id].chapter, when: HUBS[id].when });
   save();
   updateTopbar();
   dimOld();
@@ -256,11 +422,8 @@ function actionButton(label, note, done, onClick, data) {
   return b;
 }
 
-async function doAction(key, lines) {
-  await play(lines);
-  if (!state.done.includes(key)) state.done.push(key);
-  save();
-  renderHub();
+function doAction(key, lines) {
+  return play(lines, { type: 'action', key });
 }
 
 async function present(person) {
@@ -269,9 +432,7 @@ async function present(person) {
   dimOld();
   addLine('sys', `▷ 向${person.name}出示：${CLUES[id].name}`);
   const reaction = person.present?.[id] ?? [`【${person.name}】……这个，和我有什么关系吗？`];
-  await play(reaction);
-  save();
-  renderHub();
+  return play(reaction);
 }
 
 function renderHub() {
@@ -296,8 +457,10 @@ function renderHub() {
       const entries = state.hubTab === 'loc' ? g.items : g.talks;
       const avail = entries.filter((x) => hasAll(x.requires));
       const allDone = avail.length > 0 && avail.every((x) => state.done.includes(`${state.hub}:${x.id}`));
-      const b = actionButton(g.name, avail.length ? (g.note ?? g.role) : '还没有头绪', allDone, () => { state.hubSel = g.id; save(); renderHub(); }, { target: g.id });
-      b.disabled = !avail.length;
+      const status = allDone ? (state.hubTab === 'people' ? '话题已问完 · 仍可出示线索' : '当前可用项目已查看') : '';
+      const note = avail.length ? [g.note ?? g.role, status].filter(Boolean).join(' · ') : '还没有头绪';
+      const b = actionButton(g.name, note, allDone, () => { state.hubSel = g.id; save(); renderHub(); }, { target: g.id });
+      b.disabled = !avail.length && !(state.hubTab === 'people' && state.clues.length);
       grid.appendChild(b);
     }
     controls.appendChild(grid);
@@ -316,12 +479,13 @@ function renderHub() {
       if (!hasAll(x.requires)) continue;
       const key = `${state.hub}:${x.id}`;
       const label = state.hubTab === 'loc' ? `调查：${x.name}` : `询问：${x.name}`;
-      grid.appendChild(actionButton(label, null, state.done.includes(key), () => doAction(key, x.lines), { action: x.id }));
+      grid.appendChild(actionButton(label, x.optional ? '补充了解 · 不影响进入推理' : null, state.done.includes(key), () => doAction(key, x.lines), { action: x.id }));
     }
     if (state.hubTab === 'people') {
       grid.appendChild(actionButton('出示线索…', null, false, () => present(sel), { present: sel.id }));
     }
     controls.appendChild(grid);
+    if (state.hubTab === 'people') controls.appendChild(el('p', 'goal', '询问之外，也可以向对方出示线索，核对证词或追问。'));
   }
 
   const need = hub.goal.requires;
@@ -334,6 +498,17 @@ function renderHub() {
     controls.appendChild(b);
   } else {
     controls.appendChild(el('p', 'goal', `${hub.goal.deduction ? '推理所需的' : '需要找到的'}关键线索：${got} / ${need.length}`));
+    const help = el('div', 'investigation-help');
+    const button = el('button', 'tool', '调查没有进展？');
+    button.dataset.hint = '1';
+    button.addEventListener('click', () => {
+      const pending = [...hub.locations.flatMap((g) => g.items), ...hub.people.flatMap((g) => g.talks)].some((x) => hasAll(x.requires) && !state.done.includes(`${state.hub}:${x.id}`));
+      const text = pending ? '【宋小满】先看看地点和人物里还有没有未读的项目。新拿到的线索，也可能让之前的话题有了新的进展。' : '【宋小满】话问完了，也能再拿证据去核对。进入人物页面，试试「出示线索」，对照已经听过的证词。';
+      help.querySelector('p')?.remove();
+      help.appendChild(el('p', null, text));
+    });
+    help.appendChild(button);
+    controls.appendChild(help);
   }
   settle();
 }
@@ -355,6 +530,8 @@ function askQuestion() {
   const p = addLine('question');
   p.appendChild(el('small', null, `问题 ${state.q + 1} / ${d.questions.length}`));
   p.appendChild(document.createTextNode(q.q));
+  state.history.push({ cls: 'question', label: `问题 ${state.q + 1} / ${d.questions.length}`, text: q.q });
+  save();
   renderAnswers(q);
 }
 
@@ -442,19 +619,15 @@ function renderMulti(q) {
   controls.appendChild(confirm);
 }
 
-async function answer(q, correct, button, label, reply) {
+function answer(q, correct, button, label, reply) {
   addLine('sys', `▷ ${label}`);
   if (correct) {
-    await play([...(reply ?? []), ...(q.right ?? [])]);
-    state.q += 1;
-    save();
-    askQuestion();
+    return play([...(reply ?? []), ...(q.right ?? [])], { type: 'answer', correct: true, q: state.q });
   } else {
     state.mistakes += 1;
     save();
     button.classList.add('shake');
-    await play([WRONG_LINES[state.mistakes % WRONG_LINES.length]]);
-    renderAnswers(q);
+    return play(q.wrong ?? [WRONG_LINES[state.mistakes % WRONG_LINES.length]], { type: 'answer', correct: false, q: state.q });
   }
 }
 
@@ -467,6 +640,7 @@ function rating(m) {
 }
 
 function showEnding(ending) {
+  state.completed = true;
   const endings = store.get(ENDINGS_KEY, []);
   if (!endings.includes(ending.name)) store.set(ENDINGS_KEY, [...endings, ending.name]);
   $('ending-name').textContent = ending.name;
@@ -485,6 +659,7 @@ function showEnding(ending) {
 
 // ---------------- 标题 / 启动 ----------------
 function showTitle() {
+  if (state) { if (!state.completed) save(); cancelPlayback(); }
   const saved = store.get(SAVE_KEY, null);
   $('btn-continue').classList.toggle('hidden', !saved);
   const endings = store.get(ENDINGS_KEY, []);
@@ -493,9 +668,9 @@ function showTitle() {
 }
 
 function resetView() {
-  waiting = null;
-  typing = null;
-  nextHint.classList.add('hidden');
+  cancelPlayback();
+  if (activeModal === 'notebook') closeNotebook(null);
+  else closeModal();
   log.replaceChildren();
   controls.replaceChildren();
 }
@@ -505,6 +680,7 @@ function startNew() {
   resetView();
   updateTopbar();
   $('title-screen').classList.remove('show');
+  $('log').focus();
   runScene(state.scene);
 }
 
@@ -513,9 +689,18 @@ function resume() {
   resetView();
   updateTopbar();
   $('title-screen').classList.remove('show');
-  addLine('sys', '—— 继续上次的调查 ——');
-  if (state.mode === 'hub') renderHub();
-  else if (state.mode === 'deduction') askQuestion();
+  $('log').focus();
+  restoreLog();
+  if (state.playback) continuePlayback();
+  else if (state.mode === 'hub') {
+    if (!state.history.length) addLine('sys', HUBS[state.hub].intro);
+    renderHub();
+  }
+  else if (state.mode === 'deduction') {
+    if (state.history.length && DEDUCTIONS[state.ded].questions[state.q]) renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
+    else askQuestion();
+  }
+  else if (state.sceneComplete) finishScene(state.scene);
   else runScene(state.scene);
 }
 
@@ -533,6 +718,7 @@ rain.start();
 const soundBtn = $('btn-sound');
 function setSound(on) {
   soundBtn.setAttribute('aria-pressed', String(on));
+  soundBtn.textContent = on ? '关闭雨声' : '开启雨声';
   if (on) rain.soundOn(); else rain.soundOff();
 }
 soundBtn.addEventListener('click', () => setSound(soundBtn.getAttribute('aria-pressed') !== 'true'));
