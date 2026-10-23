@@ -7,6 +7,9 @@ import { chromium } from 'playwright';
 import { DEDUCTIONS, HUBS } from '../js/story.js';
 import { startServer } from './server.mjs';
 import { checkExperience } from './experience.mjs';
+import { checkMusic } from './music.mjs';
+import { musicCueFor } from '../js/music.js';
+import { createTestPage } from './browser.mjs';
 
 const SHOTS = process.argv[2];
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -16,7 +19,7 @@ const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
 const errors = [];
 
 async function playOnce(choiceIndex, { mobile = false } = {}) {
-  const page = await browser.newPage(mobile ? { viewport: { width: 390, height: 844 } } : { viewport: { width: 1100, height: 800 } });
+  const page = await createTestPage(browser, mobile ? { viewport: { width: 390, height: 844 } } : { viewport: { width: 1100, height: 800 } });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await page.goto(`${server.url}/index.html?fast`);
@@ -40,6 +43,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
       await shot('ending');
       const text = await page.locator('#ending').innerText();
       await page.click('#btn-title');
+      if (await page.locator('#app').getAttribute('data-music-cue') !== 'title') throw new Error('回到标题时配乐未切回');
       if (await state() || await page.locator('#btn-continue:not(.hidden)').count()) throw new Error('完成流程后不应恢复已经结束的存档');
       await page.close();
       return text;
@@ -51,6 +55,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
     if (await choice.count()) { await shot('choice'); await choice.nth(choiceIndex).click(); continue; }
 
     const s = await state();
+    if (s && await page.locator('#app').getAttribute('data-music-cue') !== musicCueFor(s)) throw new Error('配乐未随当前场景切换');
     if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item]').count())) {
       const q = DEDUCTIONS[s.ded].questions[s.q];
       if (!shotTaken.has(s.ded)) { shotTaken.add(s.ded); await shot(`deduction-${s.ded}`); }
@@ -116,6 +121,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 
 try {
   await checkExperience(browser, server.url, errors);
+  await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');
   const b = await playOnce(1, { mobile: true });

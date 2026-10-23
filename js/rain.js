@@ -1,10 +1,11 @@
 // 背景雨：画布上的雨丝 + 用 Web Audio 合成的雨声（不需要任何音频文件）。
 export class Rain {
-  constructor(canvas) {
+  constructor(canvas, getAudioContext = () => new (window.AudioContext || window.webkitAudioContext)()) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.drops = [];
     this.audio = null;
+    this.getAudioContext = getAudioContext;
     this.resize = this.resize.bind(this);
     window.addEventListener('resize', this.resize);
     this.resize();
@@ -54,7 +55,7 @@ export class Rain {
 
   soundOn() {
     if (!this.audio) {
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const ac = this.getAudioContext();
       // 两秒的粉红噪声循环播放，经低通滤波后就是比较柔和的雨声
       const buffer = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
       const data = buffer.getChannelData(0);
@@ -79,7 +80,7 @@ export class Rain {
       this.audio = { ac, gain };
     }
     const { ac, gain } = this.audio;
-    ac.resume();
+    ac.resume().catch(() => {});
     gain.gain.setTargetAtTime(0.5, ac.currentTime, 0.6);
   }
 

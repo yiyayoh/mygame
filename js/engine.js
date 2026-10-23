@@ -1,6 +1,7 @@
 // 文字推理游戏引擎：剧情播放、调查（地点 / 人物 / 出示线索）、推理问答、存档。
 import { START, CLUES, PROFILES, SCENES, HUBS, DEDUCTIONS, WRONG_LINES } from './story.js';
 import { Rain } from './rain.js';
+import { MusicDirector, musicCueFor } from './music.js';
 
 const FAST = new URLSearchParams(location.search).has('fast'); // 自动化测试用：跳过打字和动画
 const SAVE_KEY = 'seventh-classroom/save';
@@ -45,6 +46,8 @@ const savedSettings = store.get(SETTINGS_KEY, {});
 const settings = {
   typeMs: [0, 16, 32, 60].includes(savedSettings.typeMs) ? savedSettings.typeMs : 32,
   fontSize: [0, 16, 18, 20, 22].includes(savedSettings.fontSize) ? savedSettings.fontSize : 0,
+  musicEnabled: savedSettings.musicEnabled !== false,
+  musicVolume: Number.isFinite(savedSettings.musicVolume) ? Math.max(0, Math.min(100, savedSettings.musicVolume)) : 35,
 };
 
 function advance() {
@@ -96,6 +99,8 @@ function applySettings() {
   else document.documentElement.style.removeProperty('--reading-size');
   $('setting-speed').value = String(settings.typeMs);
   $('setting-size').value = String(settings.fontSize);
+  $('music-volume').value = String(settings.musicVolume);
+  $('music-volume-value').value = `${settings.musicVolume}%`;
 }
 applySettings();
 for (const [id, key] of [['setting-speed', 'typeMs'], ['setting-size', 'fontSize']]) {
@@ -377,6 +382,7 @@ function updateTopbar() {
 // ---------------- 场景 ----------------
 function runScene(id) {
   Object.assign(state, { mode: 'scene', scene: id, sceneComplete: false });
+  soundtrack.setCue(musicCueFor(state));
   save();
   const s = SCENES[id];
   return play(s.lines, { type: 'scene', id });
@@ -407,6 +413,7 @@ function showChoices(choices) {
 // ---------------- 调查 ----------------
 function enterHub(id) {
   Object.assign(state, { mode: 'hub', hub: id, hubTab: 'loc', hubSel: null, chapter: HUBS[id].chapter, when: HUBS[id].when });
+  soundtrack.setCue(musicCueFor(state));
   save();
   updateTopbar();
   dimOld();
@@ -516,6 +523,7 @@ function renderHub() {
 // ---------------- 推理 ----------------
 async function enterDeduction(id) {
   Object.assign(state, { mode: 'deduction', ded: id, q: 0 });
+  soundtrack.setCue(musicCueFor(state));
   save();
   dimOld();
   addLine('divider', DEDUCTIONS[id].title);
@@ -659,6 +667,7 @@ function showEnding(ending) {
 
 // ---------------- 标题 / 启动 ----------------
 function showTitle() {
+  soundtrack.setCue('title');
   if (state) { if (!state.completed) save(); cancelPlayback(); }
   const saved = store.get(SAVE_KEY, null);
   $('btn-continue').classList.toggle('hidden', !saved);
@@ -686,6 +695,7 @@ function startNew() {
 
 function resume() {
   state = { ...freshState(), ...store.get(SAVE_KEY, {}) };
+  soundtrack.setCue(musicCueFor(state));
   resetView();
   updateTopbar();
   $('title-screen').classList.remove('show');
@@ -712,15 +722,49 @@ $('btn-continue').addEventListener('click', resume);
 $('btn-menu').addEventListener('click', showTitle);
 $('btn-title').addEventListener('click', () => { $('ending').classList.remove('show'); showTitle(); });
 
-// 雨：画面一直有，声音默认关闭，由玩家开启
-const rain = new Rain($('rain'));
+// 音乐和雨声共用一个音频上下文，分别控制音量；只在用户操作后启用声音。
+const soundtrack = new MusicDirector({ enabled: settings.musicEnabled, volume: settings.musicVolume / 100, onChange: syncMusicUI });
+const rain = new Rain($('rain'), () => soundtrack.getContext());
 rain.start();
 const soundBtn = $('btn-sound');
-function setSound(on) {
+async function setSound(on) {
+  if (on && !await soundtrack.unlock()) return;
   soundBtn.setAttribute('aria-pressed', String(on));
   soundBtn.textContent = on ? '关闭雨声' : '开启雨声';
   if (on) rain.soundOn(); else rain.soundOff();
 }
 soundBtn.addEventListener('click', () => setSound(soundBtn.getAttribute('aria-pressed') !== 'true'));
 
+function syncMusicUI() {
+  const s = soundtrack.status;
+  const playing = s.enabled && s.unlocked && s.contextState === 'running' && !s.hidden;
+  const text = s.error ? '音乐不可用' : playing ? '关闭音乐' : s.enabled ? '播放音乐' : '开启音乐';
+  for (const id of ['btn-music', 'btn-title-music']) { $(id).textContent = text; $(id).setAttribute('aria-pressed', String(playing)); }
+  $('music-status').textContent = s.error ? '当前浏览器暂时无法播放声音。你仍可继续阅读。' : !s.enabled ? '音乐已关闭，雨声可单独开启。' : !s.unlocked ? '点击开始调查或播放音乐后，配乐将随场景切换。' : s.hidden || s.contextState !== 'running' ? '音乐已暂停，回到游戏后继续。' : !s.volume ? '音乐音量为 0%，可拖动滑块调高。' : '音乐已开启，将随场景轻柔切换。';
+  $('app').dataset.musicCue = s.cue;
+  $('app').dataset.musicState = s.error ? 'unavailable' : !s.enabled || !s.volume ? 'muted' : playing ? 'playing' : 'paused';
+}
+
+async function toggleMusic() {
+  if (settings.musicEnabled && (!soundtrack.unlocked || soundtrack.context?.state !== 'running')) { await soundtrack.unlock(); return; }
+  settings.musicEnabled = !settings.musicEnabled;
+  store.set(SETTINGS_KEY, settings);
+  soundtrack.setEnabled(settings.musicEnabled);
+  if (settings.musicEnabled) await soundtrack.unlock();
+}
+for (const id of ['btn-music', 'btn-title-music']) $(id).addEventListener('click', toggleMusic);
+$('music-volume').addEventListener('input', (e) => {
+  settings.musicVolume = Number(e.target.value);
+  store.set(SETTINGS_KEY, settings);
+  applySettings();
+  soundtrack.setVolume(settings.musicVolume / 100);
+});
+const unlockAudio = (e) => {
+  if (e?.target.closest('#btn-music, #btn-title-music')) return;
+  if (settings.musicEnabled || soundBtn.getAttribute('aria-pressed') === 'true') void soundtrack.unlock();
+};
+document.addEventListener('pointerdown', unlockAudio, { capture: true });
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') unlockAudio(e); }, { capture: true });
+document.addEventListener('visibilitychange', () => soundtrack.setHidden(document.hidden));
+syncMusicUI();
 showTitle();

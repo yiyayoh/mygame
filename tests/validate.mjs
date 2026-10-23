@@ -1,12 +1,18 @@
 // 剧本数据静态校验：引用是否存在，以及按流程推进时每一章的关键线索是否都拿得到。
 // 用法：node tests/validate.mjs
 import { START, CLUES, PROFILES, SCENES, HUBS, DEDUCTIONS } from '../js/story.js';
+import { MUSIC_SCORES, MUSIC_CUES } from '../js/music.js';
 
 const errors = [];
 const err = (msg) => errors.push(msg);
 const clueRef = (id, where) => { if (!CLUES[id]) err(`${where}: 未定义的线索 ${id}`); };
 const linesRef = (lines, where) => lines.forEach((l) => typeof l === 'object' && l.clue && clueRef(l.clue, where));
 const grants = (lines) => lines.filter((l) => typeof l === 'object' && l.clue).map((l) => l.clue);
+
+for (const [kind, collection] of Object.entries({ scene: SCENES, hub: HUBS, deduction: DEDUCTIONS })) {
+  for (const id of Object.keys(collection)) if (!MUSIC_SCORES[MUSIC_CUES[kind][id]]) err(`${kind}/${id}: 缺少有效配乐`);
+  for (const id of Object.keys(MUSIC_CUES[kind])) if (!collection[id]) err(`${kind}/${id}: 配乐指向不存在的内容`);
+}
 
 for (const [id, s] of Object.entries(SCENES)) {
   linesRef(s.lines, `场景 ${id}`);

@@ -169,6 +169,9 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 1fr); gap: 16px; padding: 20px; overflow-y: auto; align-items: center; }
 .settings-note { grid-column: 1 / -1; font-size: 13px; color: var(--ink-dim); margin: 0; }
 #btn-title-settings { margin-top: 12px; }
+.volume-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.volume-control input { width: 100%; min-width: 0; padding: 0; accent-color: var(--lamp); }
+.volume-control output { min-width: 3em; font-size: 13px; color: var(--ink-dim); text-align: right; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .modal-head h2 { font-size: 17px; margin: 0; letter-spacing: .2em; }
 .nb-hint { margin: 0; padding: 8px 16px 0; color: var(--lamp); font-size: 13px; }

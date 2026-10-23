@@ -1,6 +1,7 @@
 // 阅读中断、旧存档、出示引导和手机操作的回归检查。只核对已读内容，不输出剧透。
 import assert from 'node:assert/strict';
 import { SCENES, HUBS, DEDUCTIONS } from '../js/story.js';
+import { createTestPage } from './browser.mjs';
 
 const SAVE_KEY = 'seventh-classroom/save';
 const oldSave = (extra = {}) => ({ mode: 'scene', scene: 'prologue', hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, ...extra });
@@ -18,7 +19,7 @@ async function drain(page) {
 }
 
 export async function checkExperience(browser, url, errors) {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await createTestPage(browser, { viewport: { width: 390, height: 844 } });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${m.text()} ${m.location().url}`); });
   const state = () => page.evaluate((key) => JSON.parse(localStorage.getItem(key)), SAVE_KEY);

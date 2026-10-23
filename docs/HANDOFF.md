@@ -40,6 +40,7 @@ index.html              页面骨架：标题画面、章节卡、结局画面�
 css/style.css           全部样式（暗色 + 灯光黄的配色，变量定义在 :root）
 js/engine.js            游戏引擎（约 500 行）
 js/rain.js              雨丝动画（canvas）+ Web Audio 合成的雨声
+js/music.js             七套原创合成配乐、MUSIC_CUES 场景映射及 MusicDirector
 assets/favicon.svg      网站图标；部署时需一并复制 assets/
 js/story.js             剧本入口：合并各章数据，导出 START / CLUES / PROFILES / SCENES / HUBS / DEDUCTIONS / WRONG_LINES
 js/story/clues.js       全部线索（CLUES）与人物档案（PROFILES）
@@ -53,6 +54,7 @@ docs/HANDOFF.md         本文档
 tests/validate.mjs      剧本数据静态校验
 tests/playthrough.mjs   Playwright 浏览器自动通关测试
 tests/experience.mjs    阅读恢复、旧存档、界面操作回归检查
+tests/music.mjs         实际音频输出、静音与音量记忆、后台暂停及换场资源回收检查
 tests/server.mjs        供预览和测试使用的 Node 静态服务器
 package.json            只有 devDependency: playwright；npm test = 校验 + 通关
 .github/workflows/deploy.yml   push 到 main → 跑测试 → 部署到 GitHub Pages
@@ -193,6 +195,9 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 - 「回看」保留已读的跨章正文，章节卡只清空主阅读区，不删除回看。结局后仍按原规则清除可继续的存档。
 - 打字速度默认 32 毫秒/字，可在设置里选慢、标准、快、整句；字号可选默认或 16/18/20/22。设置存在独立的 `seventh-classroom/settings` 中。
 - 点击正文或按空格、回车：正在打字时显示整句，打完后进入下一句；弹窗中不会误推进正文。雨声开关已移入设置，默认仍关闭。
+- 场景音乐默认开启、音量 35%，首次用户操作后才播放。标题页与设置都有开关；`musicEnabled` 与 `musicVolume` 保存在独立设置中，关闭后不会因普通点击而擅自开启。
+- `js/music.js` 的 `MUSIC_CUES` 显式对应全部场景、调查和推理；静态校验会检查遗漏和无效引用。新增内容时也要指定配乐。`recording` 使用明显减弱的铺底，两种结局在已经到达后才切换相应配乐，不在界面列出未来曲目。
+- `MusicDirector` 负责淡入淡出和旧音符回收，音乐与雨声共用一个 AudioContext、分别控制增益。读档根据当前模式恢复配乐，同曲的普通调查操作不会重启音乐；弹窗也不会切曲。切到后台后暂停声音，返回时恢复；浏览器限制播放时等待下一次点击，不影响阅读。
 - `?fast` 参数：打字和等待全部变成 0，供自动化测试用
 - 所有可点击的元素都带 `data-*` 属性（`data-option`、`data-clue`、`data-goal`、`data-action`、`data-target`、`data-present`、`data-order-item`、`data-confirm`、`data-choice`、`data-tab`、`data-back`），**自动通关测试依赖这些属性，改界面时请保留**
 - 结局总数「（共 2 个）」是写死在 `showTitle()` 里的字符串，加结局时要一起改
@@ -204,14 +209,17 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 - 题目格式合法（answer 下标不越界、replies 数量和选项一致等）
 - **沿主线模拟**：在每个调查里反复执行所有可用行动和出示，确认 `goal.requires` 都拿得到，推理题需要的证据此时都已到手
 - 每条线索在主线中都能拿到（不允许有拿不到的死线索）
+- 全部场景、调查、推理均有有效的配乐映射
 
 `tests/playthrough.mjs`：
 - 启动 Node 本地服务器，用 Chromium 打开 `?fast`，像玩家一样一路点到结局
 - 先调用 `tests/experience.mjs`：验证旧存档、当前句和调查/出示/答题反馈恢复、跨章回看不提前剧透、搜索筛选、提示不扣分、设置持久化及 320/390 像素小屏
+- 再调用 `tests/music.mjs`：实际检测音频波形、首次操作播放、音乐/雨声共用上下文但独立静音、音量与静音记忆、读档场景、后台暂停、快速换场后的音符回收；离线渲染全部曲目，检查非静音和满音量无削波，也检查不支持音频时仍可阅读
 - 第一个推理故意答错一次，并验证结局显示「推理失误：1 次」
 - 进入第三章调查时刷新页面，测试「继续调查」读档
 - 第一遍桌面尺寸选真相结局，第二遍手机尺寸（390×844）选沉默结局
 - 任何页面报错都算失败
+- 功能回归通过 `tests/browser.mjs` 使用系统字体，隔离 Google Fonts 的外部网络波动；游戏自身的资源错误仍会导致测试失败。线上字体回退仍按原样运行。
 
 新增功能时，如果用了新的题型或交互，**记得同步更新 playthrough.mjs 的自动答题逻辑**。
 
