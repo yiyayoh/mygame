@@ -28,7 +28,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '' });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, findings: [] });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -246,7 +246,7 @@ function finishPlayback(after) {
   if (after.type === 'scene') return finishScene(after.id);
   if (after.type === 'action' && !state.done.includes(after.key)) state.done.push(after.key);
   if (after.type === 'answer') {
-    if (after.correct) { state.q = after.q + 1; save(); return askQuestion(); }
+    if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; save(); return askQuestion(); }
     save();
     return renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
   }
@@ -315,6 +315,16 @@ function renderProfiles(list) {
   }
 }
 
+function renderFindings(list) {
+  if (!state.findings.length) list.appendChild(el('p', 'empty', '还没有确认的矛盾。完成质疑后，你选中的陈述、证据与推论会留在这里。'));
+  for (const finding of state.findings) {
+    const item = el('article', 'clue finding');
+    item.dataset.finding = finding.id;
+    item.append(el('strong', 'clue-name', finding.title), el('p', 'clue-text', `待核实的陈述：${finding.statement}`), el('p', 'finding-evidence', `对应证据：${CLUES[finding.clue].name}`), el('p', 'clue-text', finding.text));
+    list.appendChild(item);
+  }
+}
+
 function openNotebook(selectHint) {
   if (!state || !openModal('notebook')) return Promise.resolve(null);
   $('nb-search').value = '';
@@ -334,7 +344,8 @@ function openNotebook(selectHint) {
     $('nb-filters').classList.toggle('hidden', !selectHint && notebookTab !== 'clues');
     tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.nbtab === notebookTab));
     if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint));
-    else renderProfiles(list);
+    else if (notebookTab === 'people') renderProfiles(list);
+    else renderFindings(list);
     list.scrollTop = 0;
   };
   $('nb-search').oninput = draw;
@@ -522,7 +533,7 @@ function renderHub() {
 
 // ---------------- 推理 ----------------
 async function enterDeduction(id) {
-  Object.assign(state, { mode: 'deduction', ded: id, q: 0 });
+  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null });
   soundtrack.setCue(musicCueFor(state));
   save();
   dimOld();
@@ -545,7 +556,8 @@ function askQuestion() {
 
 function renderAnswers(q) {
   controls.replaceChildren();
-  if (q.order) renderOrder(q);
+  if (q.testimony) renderTestimony(q);
+  else if (q.order) renderOrder(q);
   else if (q.multi) renderMulti(q);
   else if (q.options) {
     q.options.forEach((text, i) => {
@@ -566,6 +578,74 @@ function renderAnswers(q) {
     controls.appendChild(b);
   }
   settle();
+}
+
+// 先选陈述，再提交证据；仅选中或切换陈述不判错，也不泄露哪句有问题。
+function renderTestimony(q) {
+  const t = q.testimony;
+  let draft = state.testimonyDraft;
+  if (!draft || draft.ded !== state.ded || draft.q !== state.q) {
+    draft = state.testimonyDraft = { ded: state.ded, q: state.q, selected: null, hints: 0 };
+    save();
+  }
+  const source = el('p', 'testimony-source', t.source);
+  const group = el('div', 'testimony-statements');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', '选择需要质疑的一句');
+  t.statements.forEach((text, i) => {
+    const b = el('button', 'btn testimony-statement', `${i + 1}. ${text}`);
+    b.dataset.statement = i;
+    b.classList.toggle('picked', draft.selected === i);
+    b.setAttribute('aria-pressed', String(draft.selected === i));
+    b.addEventListener('click', () => {
+      draft.selected = i;
+      save();
+      renderAnswers(q);
+      controls.querySelector(`[data-statement="${i}"]`).focus({ preventScroll: true });
+    });
+    group.appendChild(b);
+  });
+  const status = el('p', 'testimony-status', draft.selected == null ? '先选一句，再用线索本里的证据质疑。选句可以随时更换。' : `已选中第 ${draft.selected + 1} 句。出示证据后才会提交质疑。`);
+  status.setAttribute('aria-live', 'polite');
+  const evidence = el('button', 'btn primary', '出示证据，质疑这句话');
+  evidence.dataset.evidence = '1';
+  evidence.disabled = draft.selected == null;
+  evidence.addEventListener('click', async () => {
+    const selected = draft.selected;
+    const id = await openNotebook(`质疑第 ${selected + 1} 句：${t.statements[selected]}`);
+    if (!id || state.mode !== 'deduction' || state.ded !== draft.ded || state.q !== draft.q || state.playback) return;
+    const correctStatement = selected === t.answer;
+    const correct = correctStatement && t.clue.includes(id);
+    answer(q, correct, evidence, `质疑「${t.statements[selected]}」 · 出示：${CLUES[id].name}`, undefined, {
+      findingClue: correct ? id : null,
+      wrong: correctStatement ? t.wrongEvidence : t.wrongStatement,
+    });
+  });
+  const help = el('div', 'testimony-help');
+  const hint = el('button', 'tool', draft.hints ? '再提示一点（不扣评价）' : '思路提示（不扣评价）');
+  hint.dataset.deductionHint = '1';
+  hint.disabled = draft.hints >= t.hints.length;
+  if (hint.disabled) hint.textContent = '思路提示已全部展开';
+  hint.addEventListener('click', () => {
+    draft.hints = Math.min(t.hints.length, draft.hints + 1);
+    save();
+    renderAnswers(q);
+    controls.querySelector('[data-deduction-hint]').focus({ preventScroll: true });
+  });
+  help.appendChild(hint);
+  const hints = el('div', 'testimony-hints');
+  hints.setAttribute('aria-live', 'polite');
+  t.hints.slice(0, draft.hints).forEach((text) => hints.appendChild(el('p', null, text)));
+  help.appendChild(hints);
+  controls.append(source, group, status, evidence, help);
+}
+
+function recordFinding(q, clue) {
+  const id = `${state.ded}:${state.q}`;
+  if (state.findings.some((f) => f.id === id)) return;
+  const t = q.testimony;
+  state.findings.push({ id, ...t.finding, statement: t.statements[t.answer], clue });
+  addLine('breakthrough', `◆ 发现矛盾 · ${t.finding.title}\n${t.finding.text}\n已记入线索本 · 推理记录`);
 }
 
 // 排序题：q.order 按正确顺序书写，显示时打乱
@@ -627,15 +707,16 @@ function renderMulti(q) {
   controls.appendChild(confirm);
 }
 
-function answer(q, correct, button, label, reply) {
+function answer(q, correct, button, label, reply, context = {}) {
   addLine('sys', `▷ ${label}`);
   if (correct) {
+    if (context.findingClue) recordFinding(q, context.findingClue);
     return play([...(reply ?? []), ...(q.right ?? [])], { type: 'answer', correct: true, q: state.q });
   } else {
     state.mistakes += 1;
     save();
     button.classList.add('shake');
-    return play(q.wrong ?? [WRONG_LINES[state.mistakes % WRONG_LINES.length]], { type: 'answer', correct: false, q: state.q });
+    return play(context.wrong ?? q.wrong ?? [WRONG_LINES[state.mistakes % WRONG_LINES.length]], { type: 'answer', correct: false, q: state.q });
   }
 }
 
@@ -656,7 +737,7 @@ function showEnding(ending) {
   const stats = $('ending-stats');
   stats.replaceChildren();
   const total = Object.keys(CLUES).length;
-  for (const [k, v] of [['收集线索', `${state.clues.length} / ${total}`], ['推理失误', `${state.mistakes} 次`], ['评价', rating(state.mistakes)]]) {
+  for (const [k, v] of [['收集线索', `${state.clues.length} / ${total}`], ['发现矛盾', `${state.findings.length} 处`], ['推理失误', `${state.mistakes} 次`], ['评价', rating(state.mistakes)]]) {
     const row = el('div');
     row.append(`${k}：`, el('b', null, v));
     stats.appendChild(row);

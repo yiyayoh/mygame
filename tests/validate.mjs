@@ -38,13 +38,28 @@ for (const [id, d] of Object.entries(DEDUCTIONS)) {
   if (!SCENES[d.done]) err(`${id}: done 指向不存在的场景 ${d.done}`);
   d.questions.forEach((q, i) => {
     const where = `${id} 第${i + 1}题`;
+    linesRef(q.right ?? [], `${where} right`);
     if (q.wrong) linesRef(q.wrong, `${where} wrong`);
     if (q.options && q.answer !== 'any' && !(q.answer >= 0 && q.answer < q.options.length)) err(`${where}: answer 越界`);
     if (q.answer === 'any' && q.replies && q.replies.length !== q.options.length) err(`${where}: replies 数量和选项不一致`);
     if (q.multi && !(q.answer.length && q.answer.every((a) => a >= 0 && a < q.multi.length))) err(`${where}: 多选题 answer 不合法`);
     if (q.order && q.order.length < 2) err(`${where}: 排序题至少要两项`);
     (q.clue ?? []).forEach((c) => clueRef(c, where));
-    if (!q.options && !q.multi && !q.order && !q.clue?.length) err(`${where}: 没有可作答的内容`);
+    if (q.testimony) {
+      const t = q.testimony;
+      if (q.options || q.multi || q.order || q.clue) err(`${where}: 证言对质不能与其他题型混用`);
+      if (!Array.isArray(t.statements) || t.statements.length < 2 || t.statements.some((s) => typeof s !== 'string' || !s.trim())) err(`${where}: 证言至少要有两句非空陈述`);
+      if (!Number.isInteger(t.answer) || t.answer < 0 || t.answer >= (t.statements?.length ?? 0)) err(`${where}: 证言 answer 越界`);
+      if (!Array.isArray(t.clue) || !t.clue.length) err(`${where}: 证言缺少正确证据`);
+      else t.clue.forEach((c) => clueRef(c, where));
+      if (!t.source?.trim() || !t.finding?.title?.trim() || !t.finding?.text?.trim()) err(`${where}: 证言缺少来源或推理记录`);
+      if (!Array.isArray(t.hints) || t.hints.length < 2 || t.hints.some((h) => typeof h !== 'string' || !h.trim())) err(`${where}: 证言需要至少两级思路提示`);
+      for (const key of ['wrongStatement', 'wrongEvidence']) {
+        if (!Array.isArray(t[key]) || !t[key].length) err(`${where}: 证言缺少 ${key} 反馈`);
+        else linesRef(t[key], `${where} ${key}`);
+      }
+    }
+    if (!q.options && !q.multi && !q.order && !q.clue?.length && !q.testimony) err(`${where}: 没有可作答的内容`);
   });
 }
 
@@ -78,7 +93,8 @@ while (scene && !visited.has(scene)) {
   if (dedId) {
     const d = DEDUCTIONS[dedId];
     d.questions.forEach((q, i) => {
-      if (q.clue && !q.clue.some((c) => owned.has(c))) err(`${dedId} 第${i + 1}题: 玩家此时没有可用的正确证据`);
+      const evidence = q.testimony?.clue ?? q.clue;
+      if (evidence && !evidence.some((c) => owned.has(c))) err(`${dedId} 第${i + 1}题: 玩家此时没有可用的正确证据`);
     });
     scene = d.done;
   } else {

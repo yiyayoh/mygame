@@ -8,6 +8,7 @@ import { DEDUCTIONS, HUBS } from '../js/story.js';
 import { startServer } from './server.mjs';
 import { checkExperience } from './experience.mjs';
 import { checkMusic } from './music.mjs';
+import { checkTestimony } from './testimony.mjs';
 import { musicCueFor } from '../js/music.js';
 import { createTestPage } from './browser.mjs';
 
@@ -59,7 +60,15 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
     if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item]').count())) {
       const q = DEDUCTIONS[s.ded].questions[s.q];
       if (!shotTaken.has(s.ded)) { shotTaken.add(s.ded); await shot(`deduction-${s.ded}`); }
-      if (q.order) {
+      if (q.testimony) {
+        const t = q.testimony;
+        const selected = !wrongOnce ? (t.answer + 1) % t.statements.length : t.answer;
+        wrongOnce = true;
+        await page.click(`[data-statement="${selected}"]`);
+        await page.click('[data-evidence]');
+        const id = t.clue.find((c) => s.clues.includes(c));
+        await page.click(`#nb-list .present[data-clue="${id}"]`);
+      } else if (q.order) {
         for (let i = 0; i < q.order.length; i++) await page.click(`[data-order-item="${i}"]`);
         await page.click('[data-confirm]');
       } else if (q.multi) {
@@ -121,13 +130,16 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 
 try {
   await checkExperience(browser, server.url, errors);
+  await checkTestimony(browser, server.url, errors);
   await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');
   const b = await playOnce(1, { mobile: true });
   console.log('✓ 手机流程完成');
   if (!a.includes('真相结局') || !b.includes('沉默结局')) throw new Error('结局不符合预期');
-  if (!a.includes('推理失误：1 次')) throw new Error('失误计数不对');
+  if (![a, b].every((text) => text.includes('推理失误：1 次'))) throw new Error('失误计数不对');
+  const findingCount = Object.values(DEDUCTIONS).reduce((n, d) => n + d.questions.filter((q) => q.testimony).length, 0);
+  if (![a, b].every((text) => text.includes(`发现矛盾：${findingCount} 处`))) throw new Error('对质完成后的推理记录数量不对');
   if (errors.length) throw new Error(`页面报错：\n${errors.join('\n')}`);
   console.log('✓ 两个结局均可通关，读档正常，无页面报错');
 } finally {
