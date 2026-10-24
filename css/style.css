@@ -130,6 +130,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .testimony-help { margin-top: 10px; }
 .testimony-help .tool { min-height: 40px; }
 .finding-evidence { color: var(--lamp); font-size: 13px; margin: 6px 0; }
+.link-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.link-slot { border-style: dashed; height: 100%; margin: 0; }
+.link-slot > span { display: block; margin: 4px 0; }
 
 /* ---------- 覆盖层 ---------- */
 .overlay {

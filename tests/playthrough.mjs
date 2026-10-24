@@ -10,6 +10,7 @@ import { checkExperience } from './experience.mjs';
 import { checkMusic } from './music.mjs';
 import { checkTestimony } from './testimony.mjs';
 import { checkClueWorkflow } from './clue-workflow.mjs';
+import { checkLinks } from './links.mjs';
 import { musicCueFor } from '../js/music.js';
 import { createTestPage } from './browser.mjs';
 
@@ -58,8 +59,9 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 
     const s = await state();
     if (s && await page.locator('#app').getAttribute('data-music-cue') !== musicCueFor(s)) throw new Error('配乐未随当前场景切换');
-    if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item]').count())) {
+    if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item], [data-link-slot]').count())) {
       const q = DEDUCTIONS[s.ded].questions[s.q];
+      if (s.ded === 'd5' && s.findings.some((f) => f.kind === 'link' && f.status !== 'confirmed')) throw new Error('后续材料读完后联结仍未得到印证');
       if (!shotTaken.has(s.ded)) { shotTaken.add(s.ded); await shot(`deduction-${s.ded}`); }
       if (q.testimony) {
         const t = q.testimony;
@@ -69,6 +71,13 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
         await page.click('[data-evidence]');
         const id = t.clue.find((c) => s.clues.includes(c));
         await page.click(`#nb-list .present[data-clue="${id}"]`);
+      } else if (q.link) {
+        const clues = mobile ? [...q.link.clues].reverse() : q.link.clues;
+        for (const [i, id] of clues.entries()) {
+          await page.click(`[data-link-slot="${i}"]`);
+          await page.click(`#nb-list .present[data-clue="${id}"]`);
+        }
+        await page.click('[data-confirm]');
       } else if (q.order) {
         for (let i = 0; i < q.order.length; i++) await page.click(`[data-order-item="${i}"]`);
         await page.click('[data-confirm]');
@@ -133,6 +142,7 @@ try {
   await checkExperience(browser, server.url, errors);
   await checkTestimony(browser, server.url, errors);
   await checkClueWorkflow(browser, server.url, errors);
+  await checkLinks(browser, server.url, errors);
   await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');
@@ -142,6 +152,8 @@ try {
   if (![a, b].every((text) => text.includes('推理失误：1 次'))) throw new Error('失误计数不对');
   const findingCount = Object.values(DEDUCTIONS).reduce((n, d) => n + d.questions.filter((q) => q.testimony).length, 0);
   if (![a, b].every((text) => text.includes(`发现矛盾：${findingCount} 处`))) throw new Error('对质完成后的推理记录数量不对');
+  const linkCount = Object.values(DEDUCTIONS).reduce((n, d) => n + d.questions.filter((q) => q.link).length, 0);
+  if (![a, b].every((text) => text.includes(`线索联结：${linkCount} 组`))) throw new Error('线索联结数量不对');
   if (errors.length) throw new Error(`页面报错：\n${errors.join('\n')}`);
   console.log('✓ 两个结局均可通关，读档正常，无页面报错');
 } finally {

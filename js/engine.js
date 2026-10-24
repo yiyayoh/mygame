@@ -28,7 +28,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, findings: [], pinnedClues: [], presented: [] });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, linkDraft: null, findings: [], pinnedClues: [], presented: [] });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -247,7 +247,7 @@ function finishPlayback(after) {
   if (after.type === 'action' && !state.done.includes(after.key)) state.done.push(after.key);
   if (after.type === 'presentation' && !state.presented.includes(after.key)) state.presented.push(after.key);
   if (after.type === 'answer') {
-    if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; save(); return askQuestion(); }
+    if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; state.linkDraft = null; save(); return askQuestion(); }
     save();
     return renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
   }
@@ -259,7 +259,10 @@ function finishPlayback(after) {
 function gainClue(id) {
   if (has(id)) return;
   state.clues.push(id);
+  const confirmed = state.findings.filter((f) => f.kind === 'link' && f.status === 'pending' && f.confirmWith === id);
+  confirmed.forEach((f) => { f.status = 'confirmed'; });
   addLine('sys', `◆ 获得线索：${CLUES[id].name}`);
+  for (const f of confirmed) addLine('breakthrough', `◆ 推测得到印证 · ${f.title}\n${f.confirmedText}\n推理记录已更新`);
   toast(`获得线索：${CLUES[id].name}`);
   updateTopbar();
   save();
@@ -339,11 +342,17 @@ function renderProfiles(list) {
 }
 
 function renderFindings(list) {
-  if (!state.findings.length) list.appendChild(el('p', 'empty', '还没有确认的矛盾。完成质疑后，你选中的陈述、证据与推论会留在这里。'));
+  if (!state.findings.length) list.appendChild(el('p', 'empty', '还没有推理记录。成立的质疑、你联结的线索与推测会留在这里。'));
   for (const finding of state.findings) {
     const item = el('article', 'clue finding');
     item.dataset.finding = finding.id;
-    item.append(el('strong', 'clue-name', finding.title), el('p', 'clue-text', `待核实的陈述：${finding.statement}`), el('p', 'finding-evidence', `对应证据：${CLUES[finding.clue].name}`), el('p', 'clue-text', finding.text));
+    item.appendChild(el('strong', 'clue-name', finding.title));
+    if (finding.kind === 'link') {
+      const confirmed = finding.status === 'confirmed';
+      item.append(el('p', 'finding-evidence', `${confirmed ? '已印证的联结' : '待核实的推测'} · ${finding.clues.map((id) => CLUES[id].name).join(' ＋ ')}`), el('p', 'clue-text', confirmed ? finding.confirmedText : finding.text));
+    } else {
+      item.append(el('p', 'clue-text', `待核实的陈述：${finding.statement}`), el('p', 'finding-evidence', `对应证据：${CLUES[finding.clue].name}`), el('p', 'clue-text', finding.text));
+    }
     list.appendChild(item);
   }
 }
@@ -561,7 +570,7 @@ function renderHub() {
 
 // ---------------- 推理 ----------------
 async function enterDeduction(id) {
-  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null });
+  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null });
   soundtrack.setCue(musicCueFor(state));
   save();
   dimOld();
@@ -585,6 +594,7 @@ function askQuestion() {
 function renderAnswers(q) {
   controls.replaceChildren();
   if (q.testimony) renderTestimony(q);
+  else if (q.link) renderLink(q);
   else if (q.order) renderOrder(q);
   else if (q.multi) renderMulti(q);
   else if (q.options) {
@@ -649,23 +659,80 @@ function renderTestimony(q) {
       wrong: correctStatement ? t.wrongEvidence : t.wrongStatement,
     });
   });
+  controls.append(source, group, status, evidence, reasoningHelp(q, draft, t.hints));
+}
+
+function reasoningHelp(q, draft, tips) {
   const help = el('div', 'testimony-help');
   const hint = el('button', 'tool', draft.hints ? '再提示一点（不扣评价）' : '思路提示（不扣评价）');
   hint.dataset.deductionHint = '1';
-  hint.disabled = draft.hints >= t.hints.length;
+  hint.disabled = draft.hints >= tips.length;
   if (hint.disabled) hint.textContent = '思路提示已全部展开';
   hint.addEventListener('click', () => {
-    draft.hints = Math.min(t.hints.length, draft.hints + 1);
+    draft.hints = Math.min(tips.length, draft.hints + 1);
     save();
     renderAnswers(q);
-    controls.querySelector('[data-deduction-hint]').focus({ preventScroll: true });
+    const next = controls.querySelector('[data-deduction-hint]:not(:disabled), .testimony-hints');
+    next.tabIndex = next.tagName === 'BUTTON' ? 0 : -1;
+    next.focus({ preventScroll: true });
   });
   help.appendChild(hint);
   const hints = el('div', 'testimony-hints');
   hints.setAttribute('aria-live', 'polite');
-  t.hints.slice(0, draft.hints).forEach((text) => hints.appendChild(el('p', null, text)));
+  tips.slice(0, draft.hints).forEach((text) => hints.appendChild(el('p', null, text)));
   help.appendChild(hints);
-  controls.append(source, group, status, evidence, help);
+  return help;
+}
+
+// 两条已获得线索的联结：顺序不限；选卡、取消和重选不计失误。
+function renderLink(q) {
+  let draft = state.linkDraft;
+  if (!draft || draft.ded !== state.ded || draft.q !== state.q) {
+    draft = state.linkDraft = { ded: state.ded, q: state.q, selected: [null, null], hints: 0 };
+    save();
+  }
+  controls.appendChild(el('p', 'testimony-source', '线索联结 · 先提出推测'));
+  const pair = el('div', 'link-pair');
+  draft.selected.forEach((id, index) => {
+    const clue = id && CLUES[id];
+    const b = el('button', 'btn link-slot');
+    b.dataset.linkSlot = index;
+    b.append(el('small', 'note', `线索 ${index + 1}`), el('span', null, clue ? clue.name : '从线索本选择一条'), el('small', 'note', clue ? `${clue.type} · 点击可查看或更换` : '只使用你已经获得的线索'));
+    b.addEventListener('click', async () => {
+      const selected = await openNotebook(`选择第 ${index + 1} 条线索，与另一条一起核对。`);
+      if (!selected || state.mode !== 'deduction' || state.ded !== draft.ded || state.q !== draft.q || state.playback) return;
+      if (draft.selected.some((id, i) => i !== index && id === selected)) return toast('这条线索已经选入');
+      draft.selected[index] = selected;
+      save();
+      renderAnswers(q);
+      controls.querySelector(`[data-link-slot="${index}"]`).focus({ preventScroll: true });
+    });
+    pair.appendChild(b);
+  });
+  const reset = el('button', 'tool', '清空重选');
+  reset.dataset.linkReset = '1';
+  reset.addEventListener('click', () => {
+    draft.selected = [null, null];
+    save();
+    renderAnswers(q);
+    controls.querySelector('[data-link-slot]').focus({ preventScroll: true });
+  });
+  const confirm = el('button', 'btn primary', '联结这两条线索');
+  confirm.dataset.confirm = '1';
+  confirm.disabled = !draft.selected.every((id) => id && has(id)) || new Set(draft.selected).size !== 2;
+  confirm.addEventListener('click', () => {
+    const correct = q.link.clues.every((id) => draft.selected.includes(id));
+    answer(q, correct, confirm, `联结：${draft.selected.map((id) => CLUES[id].name).join(' ＋ ')}`, undefined, { linkClues: correct ? [...draft.selected] : null });
+  });
+  controls.append(pair, el('p', 'testimony-status', '两条都选好后再提交。联结成立会先记为推测，等后续证据印证。'), reset, confirm, reasoningHelp(q, draft, q.link.hints));
+}
+
+function recordLink(q, clues) {
+  const id = `${state.ded}:${state.q}`;
+  if (state.findings.some((f) => f.id === id)) return;
+  const finding = { id, kind: 'link', clues, ...q.link.finding, status: has(q.link.finding.confirmWith) ? 'confirmed' : 'pending' };
+  state.findings.push(finding);
+  addLine('breakthrough', `◆ 线索联结 · ${finding.title}\n${finding.status === 'pending' ? finding.text : finding.confirmedText}\n已记入线索本 · 推理记录`);
 }
 
 function recordFinding(q, clue) {
@@ -739,6 +806,7 @@ function answer(q, correct, button, label, reply, context = {}) {
   addLine('sys', `▷ ${label}`);
   if (correct) {
     if (context.findingClue) recordFinding(q, context.findingClue);
+    if (context.linkClues) recordLink(q, context.linkClues);
     return play([...(reply ?? []), ...(q.right ?? [])], { type: 'answer', correct: true, q: state.q });
   } else {
     state.mistakes += 1;
@@ -765,7 +833,8 @@ function showEnding(ending) {
   const stats = $('ending-stats');
   stats.replaceChildren();
   const total = Object.keys(CLUES).length;
-  for (const [k, v] of [['收集线索', `${state.clues.length} / ${total}`], ['发现矛盾', `${state.findings.length} 处`], ['推理失误', `${state.mistakes} 次`], ['评价', rating(state.mistakes)]]) {
+  const linked = state.findings.filter((f) => f.kind === 'link').length;
+  for (const [k, v] of [['收集线索', `${state.clues.length} / ${total}`], ['发现矛盾', `${state.findings.length - linked} 处`], ['线索联结', `${linked} 组`], ['推理失误', `${state.mistakes} 次`], ['评价', rating(state.mistakes)]]) {
     const row = el('div');
     row.append(`${k}：`, el('b', null, v));
     stats.appendChild(row);

@@ -47,7 +47,7 @@ for (const [id, d] of Object.entries(DEDUCTIONS)) {
     (q.clue ?? []).forEach((c) => clueRef(c, where));
     if (q.testimony) {
       const t = q.testimony;
-      if (q.options || q.multi || q.order || q.clue) err(`${where}: 证言对质不能与其他题型混用`);
+      if (q.options || q.multi || q.order || q.clue || q.link) err(`${where}: 证言对质不能与其他题型混用`);
       if (!Array.isArray(t.statements) || t.statements.length < 2 || t.statements.some((s) => typeof s !== 'string' || !s.trim())) err(`${where}: 证言至少要有两句非空陈述`);
       if (!Number.isInteger(t.answer) || t.answer < 0 || t.answer >= (t.statements?.length ?? 0)) err(`${where}: 证言 answer 越界`);
       if (!Array.isArray(t.clue) || !t.clue.length) err(`${where}: 证言缺少正确证据`);
@@ -59,7 +59,17 @@ for (const [id, d] of Object.entries(DEDUCTIONS)) {
         else linesRef(t[key], `${where} ${key}`);
       }
     }
-    if (!q.options && !q.multi && !q.order && !q.clue?.length && !q.testimony) err(`${where}: 没有可作答的内容`);
+    if (q.link) {
+      const l = q.link;
+      if (q.options || q.multi || q.order || q.clue || q.testimony) err(`${where}: 线索联结不能与其他题型混用`);
+      if (!Array.isArray(l.clues) || l.clues.length !== 2 || new Set(l.clues).size !== 2) err(`${where}: 线索联结需要两条不同证据`);
+      else l.clues.forEach((c) => clueRef(c, where));
+      if (!Array.isArray(l.hints) || l.hints.length < 2 || l.hints.some((h) => typeof h !== 'string' || !h.trim())) err(`${where}: 线索联结需要两级提示`);
+      if (!l.finding?.title?.trim() || !l.finding?.text?.trim() || !l.finding?.confirmedText?.trim()) err(`${where}: 线索联结缺少推测或印证记录`);
+      clueRef(l.finding?.confirmWith, `${where} 印证证据`);
+      if (l.clues?.includes(l.finding?.confirmWith)) err(`${where}: 印证证据不能是用于提出推测的证据`);
+    }
+    if (!q.options && !q.multi && !q.order && !q.clue?.length && !q.testimony && !q.link) err(`${where}: 没有可作答的内容`);
   });
 }
 
@@ -95,6 +105,8 @@ while (scene && !visited.has(scene)) {
     d.questions.forEach((q, i) => {
       const evidence = q.testimony?.clue ?? q.clue;
       if (evidence && !evidence.some((c) => owned.has(c))) err(`${dedId} 第${i + 1}题: 玩家此时没有可用的正确证据`);
+      if (q.link?.clues?.some((c) => !owned.has(c))) err(`${dedId} 第${i + 1}题: 玩家此时没有联结所需的全部证据`);
+      if (q.link && owned.has(q.link.finding.confirmWith)) err(`${dedId} 第${i + 1}题: 联结推测的印证证据已提前获得`);
     });
     scene = d.done;
   } else {
