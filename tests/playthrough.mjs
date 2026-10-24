@@ -9,6 +9,7 @@ import { startServer } from './server.mjs';
 import { checkExperience } from './experience.mjs';
 import { checkMusic } from './music.mjs';
 import { checkTestimony } from './testimony.mjs';
+import { checkClueWorkflow } from './clue-workflow.mjs';
 import { musicCueFor } from '../js/music.js';
 import { createTestPage } from './browser.mjs';
 
@@ -131,6 +132,7 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 try {
   await checkExperience(browser, server.url, errors);
   await checkTestimony(browser, server.url, errors);
+  await checkClueWorkflow(browser, server.url, errors);
   await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');

@@ -173,6 +173,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 7px 9px; min-width: 0; }
 input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
 #nb-count { grid-column: 1 / -1; margin: 0; color: var(--ink-dim); font-size: 12px; }
+.nb-summary { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.nb-summary .tool { min-height: 36px; }
 #history-list { padding: 16px 20px; overflow-y: auto; font-size: var(--reading-size, inherit); }
 #history-list .line { animation: none; }
 .settings-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 1fr); gap: 16px; padding: 20px; overflow-y: auto; align-items: center; }
@@ -192,7 +194,10 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .clue-type { font-size: 11px; color: var(--bg); background: var(--lamp-dim); border-radius: 3px; padding: 0 6px; line-height: 1.7; }
 .clue-name { font-weight: 600; }
 .clue-text { font-size: var(--reading-size, 14px); color: #bdb7aa; margin: 4px 0 0; line-height: 1.8; }
-.clue .present { margin-left: auto; background: transparent; border: 1px solid var(--lamp-dim); color: var(--lamp); border-radius: 4px; font-size: 13px; padding: 2px 12px; }
+.clue-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.clue-actions button { min-height: 36px; }
+.clue .present { background: transparent; border: 1px solid var(--lamp-dim); color: var(--lamp); border-radius: 4px; font-size: 13px; padding: 4px 12px; }
+.clue-seen { margin: 4px 0 0; color: var(--ink-dim); font-size: 12px; }
 .nb-tabs { padding: 8px 16px 0; margin: 0; }
 .profile-role { font-size: 12px; color: var(--ink-dim); }
 .order-seq { margin: 4px 0 8px; padding-left: 1.6em; color: var(--lamp); font-size: 14px; }
@@ -218,6 +223,7 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
   .tools { margin-left: auto; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
   .nb-filters { grid-template-columns: minmax(0, 1fr); }
+  .clue-actions button, .nb-summary .tool { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .line, .btn.shake { animation: none; }

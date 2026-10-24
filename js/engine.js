@@ -28,7 +28,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, findings: [] });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, findings: [], pinnedClues: [], presented: [] });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -245,6 +245,7 @@ async function continuePlayback() {
 function finishPlayback(after) {
   if (after.type === 'scene') return finishScene(after.id);
   if (after.type === 'action' && !state.done.includes(after.key)) state.done.push(after.key);
+  if (after.type === 'presentation' && !state.presented.includes(after.key)) state.presented.push(after.key);
   if (after.type === 'answer') {
     if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; save(); return askQuestion(); }
     save();
@@ -276,27 +277,49 @@ function toast(text) {
 let notebookResolve = null;
 let notebookTab = 'clues';
 
-function renderClues(list, selecting) {
+const presentationKey = (hub, person, clue) => `${hub}:${person}:${clue}`;
+
+function renderClues(list, selecting, { onlyPinned = false, person = null, redraw } = {}) {
   const search = $('nb-search').value.trim().toLocaleLowerCase();
   const category = $('nb-type').value;
   const ids = state.clues.filter((id) => {
     const clue = CLUES[id];
-    return (!category || clue.type === category) && (!search || `${clue.name} ${clue.type} ${clue.text}`.toLocaleLowerCase().includes(search));
+    return (!onlyPinned || state.pinnedClues.includes(id)) && (!category || clue.type === category) && (!search || `${clue.name} ${clue.type} ${clue.text}`.toLocaleLowerCase().includes(search));
   });
   $('nb-count').textContent = `显示 ${ids.length} / ${state.clues.length} 条已获得的线索`;
-  if (!ids.length) list.appendChild(el('p', 'empty', state.clues.length ? '没有匹配的线索，试试其他关键词或类别。' : '还没有任何线索。'));
+  if (!ids.length) list.appendChild(el('p', 'empty', state.clues.length ? (onlyPinned ? '当前没有匹配的已标记线索。关闭「只看标记」可查看其他线索。' : '没有匹配的线索，试试其他关键词或类别。') : '还没有任何线索。'));
   for (const id of ids) {
     const c = CLUES[id];
     const item = el('div', 'clue');
     const head = el('div', 'clue-head');
     head.append(el('span', 'clue-type', c.type), el('span', 'clue-name', c.name));
+    const actions = el('div', 'clue-actions');
+    const pinned = state.pinnedClues.includes(id);
+    const pin = el('button', 'tool clue-pin', pinned ? '★ 已标记' : '☆ 标记');
+    pin.dataset.pin = id;
+    pin.setAttribute('aria-pressed', String(pinned));
+    pin.setAttribute('aria-label', `${pinned ? '取消标记' : '标记'}线索：${c.name}`);
+    pin.addEventListener('click', () => {
+      if (pinned) state.pinnedClues = state.pinnedClues.filter((c) => c !== id);
+      else state.pinnedClues.push(id);
+      save();
+      const scroll = list.scrollTop;
+      redraw();
+      list.scrollTop = scroll;
+      const target = [...list.querySelectorAll('[data-pin]')].find((b) => b.dataset.pin === id);
+      (target ?? $('nb-marked')).focus({ preventScroll: true });
+    });
+    actions.appendChild(pin);
+    const seen = person && state.presented.includes(presentationKey(state.hub, person.id, id));
     if (selecting) {
-      const b = el('button', 'present', '出示');
+      const b = el('button', 'present', seen ? '再次出示' : '出示');
       b.dataset.clue = id;
       b.addEventListener('click', () => closeNotebook(id));
-      head.appendChild(b);
+      actions.appendChild(b);
     }
+    head.appendChild(actions);
     item.append(head, el('p', 'clue-text', c.text));
+    if (seen) item.appendChild(el('p', 'clue-seen', `本轮调查已向${person.name}出示过，可再次核对。`));
     list.appendChild(item);
   }
 }
@@ -325,8 +348,9 @@ function renderFindings(list) {
   }
 }
 
-function openNotebook(selectHint) {
+function openNotebook(selectHint, { person = null } = {}) {
   if (!state || !openModal('notebook')) return Promise.resolve(null);
+  let onlyPinned = false;
   $('nb-search').value = '';
   $('nb-type').replaceChildren(el('option', null, '全部类别'));
   $('nb-type').firstElementChild.value = '';
@@ -342,14 +366,16 @@ function openNotebook(selectHint) {
     const tabs = $('nb-tabs');
     tabs.classList.toggle('hidden', Boolean(selectHint));
     $('nb-filters').classList.toggle('hidden', !selectHint && notebookTab !== 'clues');
+    $('nb-marked').setAttribute('aria-pressed', String(onlyPinned));
     tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.nbtab === notebookTab));
-    if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint));
+    if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint), { onlyPinned, person, redraw: draw });
     else if (notebookTab === 'people') renderProfiles(list);
     else renderFindings(list);
     list.scrollTop = 0;
   };
   $('nb-search').oninput = draw;
   $('nb-type').onchange = draw;
+  $('nb-marked').onclick = () => { onlyPinned = !onlyPinned; draw(); };
   $('nb-tabs').onclick = (e) => {
     const t = e.target.dataset?.nbtab;
     if (t) { notebookTab = t; draw(); }
@@ -445,12 +471,13 @@ function doAction(key, lines) {
 }
 
 async function present(person) {
-  const id = await openNotebook(`向${person.name}出示哪条线索？`);
-  if (!id) return;
+  const hub = state.hub;
+  const id = await openNotebook(`向${person.name}出示哪条线索？`, { person });
+  if (!id || state.mode !== 'hub' || state.hub !== hub) return;
   dimOld();
   addLine('sys', `▷ 向${person.name}出示：${CLUES[id].name}`);
   const reaction = person.present?.[id] ?? [`【${person.name}】……这个，和我有什么关系吗？`];
-  return play(reaction);
+  return play(reaction, { type: 'presentation', key: presentationKey(hub, person.id, id) });
 }
 
 function renderHub() {
@@ -500,7 +527,8 @@ function renderHub() {
       grid.appendChild(actionButton(label, x.optional ? '补充了解 · 不影响进入推理' : null, state.done.includes(key), () => doAction(key, x.lines), { action: x.id }));
     }
     if (state.hubTab === 'people') {
-      grid.appendChild(actionButton('出示线索…', null, false, () => present(sel), { present: sel.id }));
+      const count = state.presented.filter((key) => key.startsWith(`${state.hub}:${sel.id}:`)).length;
+      grid.appendChild(actionButton('出示线索…', count ? `本轮已出示 ${count} 条 · 可在线索本里核对` : null, false, () => present(sel), { present: sel.id }));
     }
     controls.appendChild(grid);
     if (state.hubTab === 'people') controls.appendChild(el('p', 'goal', '询问之外，也可以向对方出示线索，核对证词或追问。'));

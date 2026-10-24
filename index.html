@@ -87,7 +87,10 @@
       <div id="nb-filters" class="nb-filters">
         <input id="nb-search" type="search" aria-label="查找已获得的线索" placeholder="查找线索名称或内容" autocomplete="off">
         <select id="nb-type" aria-label="按线索类别筛选"></select>
-        <p id="nb-count" aria-live="polite"></p>
+        <div class="nb-summary">
+          <button id="nb-marked" class="tool" aria-pressed="false">只看标记</button>
+          <p id="nb-count" aria-live="polite"></p>
+        </div>
       </div>
       <div id="nb-list"></div>
     </div>
