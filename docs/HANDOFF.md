@@ -57,6 +57,7 @@ tests/experience.mjs    阅读恢复、旧存档、界面操作回归检查
 tests/testimony.mjs     对质组合判断、分级提示、发现记录与中断恢复检查
 tests/clue-workflow.mjs 线索标记、筛选、出示记录与跨章区分检查
 tests/links.mjs         跨章线索联结、推测印证、防剧透档案与恢复检查
+tests/answer-drafts.mjs 排序与多选草稿、撤回重选及提交恢复检查
 tests/music.mjs         实际音频输出、静音与音量记忆、后台暂停及换场资源回收检查
 tests/server.mjs        供预览和测试使用的 Node 静态服务器
 package.json            只有 devDependency: playwright；npm test = 校验 + 通关
@@ -212,6 +213,7 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 - 状态对象保留原有字段，并新增 `version: 2`、`history[]`、`logStart`、`playback`、`sceneComplete`、`chapter`、`when`。`playback` 保存正在阅读的台词列表、当前索引、当前句是否显示以及播放后的动作。
 - 对质新增可选状态 `testimonyDraft: { ded, q, selected, hints }` 和 `findings[]`。刷新保留选句与已展开提示；打开或取消线索本不提交答案。发现以 `ded:q` 去重，在成功反馈前保存，恢复反馈不会重复发放。旧存档缺少这些字段时使用空值，不补造已经完成的发现。
 - 联结的选择保存在 `linkDraft: { ded, q, selected: [clueId|null, clueId|null], hints }`。同一条线索不能放入两格，提交前可取消、更换、清空。`findings` 内以 `kind: 'link'` 区分联结，保存两条证据、`pending/confirmed` 状态与后续印证线索。印证只更新原记录，不额外计为第二组发现。
+- 2026-10-25：排序与多选新增 `answerDraft: { ded, q, kind, selected, displayOrder? }`。排序保存候选的打乱顺序及已排事件，可以撤回或清空；多选保存选中项，空白时禁用提交。错误反馈保留草稿供修改，正确反馈完成后清空；旧存档或无效草稿回退为空白，不计失误。
 - 新的 `recording_truth` 不作为旧流程的推进门槛，升级前已经越过录音的存档仍能继续；也不会为旧存档补造玩家从未提交过的联结。
 - 「推理记录」只显示已确认的陈述、实际出示的证据与推论，不预列未来节点。两级思路提示不计失误，只有实际提交错误组合才计一次失误。
 - 线索可由玩家自行标记，保存在 `pinnedClues[]`。「只看标记」可与搜索和类别组合使用；每次重新打开线索本会关闭该筛选，标记本身仍保留，避免无意隐藏答题证据。
@@ -246,6 +248,7 @@ prologue → ch1_arrive → [hub1] → d1 → ch1_end → ch1_widow
 - 调用 `tests/testimony.mjs`：验证陈述与证据必须同时正确、选句与提示不扣分、取消出示、反馈中断、发现只发一次、旧题号与旧反馈存档、小屏大字和键盘点选
 - 调用 `tests/clue-workflow.mjs`：验证标记与组合筛选、在出示界面标记不误提交、取消与中断、重复出示去重、跨人物跨章区分和小屏操作
 - 调用 `tests/links.mjs`：验证两证据联结、反向顺序、自由重选、分级提示、反馈恢复、推测在后续证据取得前不被当作事实、印证只更新一次，以及档案不会因仅持有录音载体就提前剧透
+- 调用 `tests/answer-drafts.mjs`：验证刷新、标题返回及弹窗不丢排序或多选草稿，候选顺序保持不变，撤回与清空不计分，空白多选不提交，反馈中断只计一次，以及旧存档和小屏操作
 - 再调用 `tests/music.mjs`：实际检测音频波形、首次操作播放、音乐/雨声共用上下文但独立静音、音量与静音记忆、读档场景、后台暂停、快速换场后的音符回收；离线渲染全部曲目，检查非静音和满音量无削波，也检查不支持音频时仍可阅读
 - 第一个推理故意答错一次，并验证结局显示「推理失误：1 次」
 - 进入第三章调查时刷新页面，测试「继续调查」读档

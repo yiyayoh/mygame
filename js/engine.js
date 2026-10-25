@@ -28,7 +28,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, linkDraft: null, findings: [], pinnedClues: [], presented: [] });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, linkDraft: null, answerDraft: null, findings: [], pinnedClues: [], presented: [] });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -247,7 +247,7 @@ function finishPlayback(after) {
   if (after.type === 'action' && !state.done.includes(after.key)) state.done.push(after.key);
   if (after.type === 'presentation' && !state.presented.includes(after.key)) state.presented.push(after.key);
   if (after.type === 'answer') {
-    if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; state.linkDraft = null; save(); return askQuestion(); }
+    if (after.correct) { state.q = after.q + 1; state.testimonyDraft = null; state.linkDraft = null; state.answerDraft = null; save(); return askQuestion(); }
     save();
     return renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
   }
@@ -570,7 +570,7 @@ function renderHub() {
 
 // ---------------- 推理 ----------------
 async function enterDeduction(id) {
-  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null });
+  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null, answerDraft: null });
   soundtrack.setCue(musicCueFor(state));
   save();
   dimOld();
@@ -743,53 +743,84 @@ function recordFinding(q, clue) {
   addLine('breakthrough', `◆ 发现矛盾 · ${t.finding.title}\n${t.finding.text}\n已记入线索本 · 推理记录`);
 }
 
-// 排序题：q.order 按正确顺序书写，显示时打乱
+function getAnswerDraft(q, kind) {
+  const count = (q.order ?? q.multi).length;
+  const valid = (items) => Array.isArray(items) && new Set(items).size === items.length && items.every((i) => Number.isInteger(i) && i >= 0 && i < count);
+  const current = state.answerDraft;
+  if (current?.ded === state.ded && current.q === state.q && current.kind === kind && valid(current.selected) && (kind !== 'order' || (valid(current.displayOrder) && current.displayOrder.length === count))) return current;
+  const draft = { ded: state.ded, q: state.q, kind, selected: [] };
+  if (kind === 'order') {
+    draft.displayOrder = Array.from({ length: count }, (_, i) => i);
+    for (let k = count - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [draft.displayOrder[k], draft.displayOrder[j]] = [draft.displayOrder[j], draft.displayOrder[k]];
+    }
+    if (draft.displayOrder.every((v, k) => v === k)) draft.displayOrder.push(draft.displayOrder.shift());
+  }
+  state.answerDraft = draft;
+  save();
+  return draft;
+}
+
+// 排序题：候选顺序与已排部分一同保存，可以撤回最后一步。
 function renderOrder(q) {
-  const picked = [];
-  const hint = el('p', 'goal', '按发生的先后顺序，依次点选。');
+  const draft = getAnswerDraft(q, 'order');
+  const picked = draft.selected;
+  const hint = el('p', 'goal');
+  hint.dataset.answerStatus = '1';
+  hint.setAttribute('aria-live', 'polite');
   const seq = el('ol', 'order-seq');
   const grid = el('div', 'grid');
-  const shuffled = q.order.map((text, i) => ({ text, i }));
-  do {
-    for (let k = shuffled.length - 1; k > 0; k--) {
-      const j = Math.floor(Math.random() * (k + 1));
-      [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]];
-    }
-  } while (shuffled.every((x, k) => x.i === k)); // 别恰好是正确顺序
-  for (const { text, i } of shuffled) {
-    const b = el('button', 'btn', text);
+  for (const i of draft.displayOrder) {
+    const b = el('button', 'btn', q.order[i]);
     b.dataset.orderItem = i;
     b.addEventListener('click', () => {
       picked.push(i);
-      b.disabled = true;
-      seq.appendChild(el('li', null, text));
-      confirm.disabled = picked.length !== q.order.length;
-      settle();
+      update();
     });
     grid.appendChild(b);
   }
+  const undo = el('button', 'btn', '撤回最后一步');
+  undo.dataset.orderUndo = '1';
+  undo.addEventListener('click', () => { picked.pop(); update(); });
   const reset = el('button', 'btn', '重新排列');
-  reset.addEventListener('click', () => renderAnswers(q));
+  reset.dataset.orderReset = '1';
+  reset.addEventListener('click', () => { picked.length = 0; update(); });
   const confirm = el('button', 'btn primary', '确定');
   confirm.dataset.confirm = '1';
-  confirm.disabled = true;
   confirm.addEventListener('click', () => {
     const correct = picked.every((v, k) => v === k);
     answer(q, correct, confirm, `排列：${picked.map((k) => k + 1).join(' → ')}`);
   });
-  controls.append(hint, seq, grid, reset, confirm);
+  function update() {
+    seq.replaceChildren(...picked.map((i) => el('li', null, q.order[i])));
+    for (const b of grid.children) b.disabled = picked.includes(Number(b.dataset.orderItem));
+    hint.textContent = `已排列 ${picked.length} / ${q.order.length} 项。按先后顺序点选，可撤回或重排。`;
+    undo.disabled = reset.disabled = picked.length === 0;
+    confirm.disabled = picked.length !== q.order.length;
+    save();
+    settle();
+  }
+  const edits = el('div', 'answer-edit-tools');
+  edits.append(undo, reset);
+  controls.append(hint, seq, grid, edits, confirm);
+  update();
 }
 
 // 多选题：q.answer 为全部正确选项的序号
 function renderMulti(q) {
-  const picked = new Set();
-  controls.appendChild(el('p', 'goal', '选出所有符合的选项，然后点「确定」。'));
+  const draft = getAnswerDraft(q, 'multi');
+  const picked = new Set(draft.selected);
+  const status = el('p', 'goal');
+  status.dataset.answerStatus = '1';
+  status.setAttribute('aria-live', 'polite');
+  controls.appendChild(status);
   q.multi.forEach((text, i) => {
     const b = el('button', 'btn check', text);
     b.dataset.option = i;
     b.addEventListener('click', () => {
       if (picked.has(i)) picked.delete(i); else picked.add(i);
-      b.classList.toggle('picked', picked.has(i));
+      update();
     });
     controls.appendChild(b);
   });
@@ -799,7 +830,22 @@ function renderMulti(q) {
     const correct = picked.size === q.answer.length && q.answer.every((i) => picked.has(i));
     answer(q, correct, confirm, `选择：${[...picked].sort().map((i) => q.multi[i]).join('、') || '（无）'}`);
   });
-  controls.appendChild(confirm);
+  const reset = el('button', 'btn', '清空重选');
+  reset.dataset.multiReset = '1';
+  reset.addEventListener('click', () => { picked.clear(); update(); });
+  function update() {
+    draft.selected = [...picked].sort((a, b) => a - b);
+    for (const b of controls.querySelectorAll('[data-option]')) {
+      const selected = picked.has(Number(b.dataset.option));
+      b.classList.toggle('picked', selected);
+      b.setAttribute('aria-pressed', String(selected));
+    }
+    status.textContent = `已选 ${picked.size} 项。可以多选，确认前可随时改选。`;
+    confirm.disabled = reset.disabled = picked.size === 0;
+    save();
+  }
+  controls.append(reset, confirm);
+  update();
 }
 
 function answer(q, correct, button, label, reply, context = {}) {

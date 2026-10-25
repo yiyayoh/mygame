@@ -11,6 +11,7 @@ import { checkMusic } from './music.mjs';
 import { checkTestimony } from './testimony.mjs';
 import { checkClueWorkflow } from './clue-workflow.mjs';
 import { checkLinks } from './links.mjs';
+import { checkAnswerDrafts } from './answer-drafts.mjs';
 import { musicCueFor } from '../js/music.js';
 import { createTestPage } from './browser.mjs';
 
@@ -143,6 +144,7 @@ try {
   await checkTestimony(browser, server.url, errors);
   await checkClueWorkflow(browser, server.url, errors);
   await checkLinks(browser, server.url, errors);
+  await checkAnswerDrafts(browser, server.url, errors);
   await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');
