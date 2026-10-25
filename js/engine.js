@@ -28,7 +28,7 @@ const store = {
 
 // ---------------- 状态 ----------------
 let state;
-const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, linkDraft: null, answerDraft: null, findings: [], pinnedClues: [], presented: [] });
+const freshState = () => ({ version: 2, mode: 'scene', scene: START, hub: null, ded: null, q: 0, clues: [], done: [], mistakes: 0, hubTab: 'loc', hubSel: null, history: [], logStart: 0, playback: null, chapter: '', when: '', testimonyDraft: null, linkDraft: null, answerDraft: null, findings: [], pinnedClues: [], presented: [], reviewStarted: true });
 const save = () => store.set(SAVE_KEY, state);
 const has = (id) => state.clues.includes(id);
 const hasAll = (ids = []) => ids.every(has);
@@ -570,7 +570,8 @@ function renderHub() {
       const avail = entries.filter((x) => hasAll(x.requires));
       const allDone = avail.length > 0 && avail.every((x) => state.done.includes(`${state.hub}:${x.id}`));
       const status = allDone ? (state.hubTab === 'people' ? '话题已问完 · 仍可出示线索' : '当前可用项目已查看') : '';
-      const note = avail.length ? [g.note ?? g.role, status].filter(Boolean).join(' · ') : '还没有头绪';
+      const optional = avail.length && avail.every((x) => x.optional) ? '补充了解 · 不影响进入推理' : '';
+      const note = avail.length ? [g.note ?? g.role, optional, status].filter(Boolean).join(' · ') : '还没有头绪';
       const b = actionButton(g.name, note, allDone, () => { state.hubSel = g.id; save(); renderHub(); }, { target: g.id });
       b.disabled = !avail.length && !(state.hubTab === 'people' && state.clues.length);
       grid.appendChild(b);
@@ -615,8 +616,8 @@ function renderHub() {
     const button = el('button', 'tool', '调查没有进展？');
     button.dataset.hint = '1';
     button.addEventListener('click', () => {
-      const pending = [...hub.locations.flatMap((g) => g.items), ...hub.people.flatMap((g) => g.talks)].some((x) => hasAll(x.requires) && !state.done.includes(`${state.hub}:${x.id}`));
-      const text = pending ? '【宋小满】先看看地点和人物里还有没有未读的项目。新拿到的线索，也可能让之前的话题有了新的进展。' : '【宋小满】话问完了，也能再拿证据去核对。进入人物页面，试试「出示线索」，对照已经听过的证词。';
+      const pending = [...hub.locations.flatMap((g) => g.items), ...hub.people.flatMap((g) => g.talks)].some((x) => !x.optional && hasAll(x.requires) && !state.done.includes(`${state.hub}:${x.id}`));
+      const text = pending ? '【宋小满】先看看地点和人物里还有没有未读的项目。新拿到的线索，也可能让之前的话题有了新的进展。' : '【宋小满】有些证词还需要拿证据核对。进入人物页面，试试「出示线索」，对照已经听过的话。补充谈话可以稍后再看。';
       help.querySelector('p')?.remove();
       help.appendChild(el('p', null, text));
     });
@@ -628,7 +629,7 @@ function renderHub() {
 
 // ---------------- 推理 ----------------
 async function enterDeduction(id) {
-  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null, answerDraft: null });
+  Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null, answerDraft: null, reviewStarted: !DEDUCTIONS[id].review });
   soundtrack.setCue(musicCueFor(state));
   save();
   dimOld();
@@ -638,6 +639,7 @@ async function enterDeduction(id) {
 
 function askQuestion() {
   const d = DEDUCTIONS[state.ded];
+  if (d.review && state.reviewStarted === false) return renderReviewChoice();
   const q = d.questions[state.q];
   if (!q) return runScene(d.done);
   dimOld();
@@ -650,6 +652,7 @@ function askQuestion() {
 }
 
 function renderAnswers(q) {
+  if (DEDUCTIONS[state.ded].review && state.reviewStarted === false) return renderReviewChoice();
   controls.replaceChildren();
   if (q.testimony) renderTestimony(q);
   else if (q.link) renderLink(q);
@@ -673,6 +676,29 @@ function renderAnswers(q) {
     });
     controls.appendChild(b);
   }
+  if (DEDUCTIONS[state.ded].review) {
+    const skip = el('button', 'btn', '结束回顾，继续调查');
+    skip.dataset.skipReview = '1';
+    skip.addEventListener('click', finishReview);
+    controls.appendChild(skip);
+  }
+  settle();
+}
+
+function finishReview() {
+  Object.assign(state, { reviewStarted: true, testimonyDraft: null, linkDraft: null, answerDraft: null });
+  runScene(DEDUCTIONS[state.ded].done);
+}
+
+function renderReviewChoice() {
+  controls.replaceChildren(el('p', 'review-note', '接下来只回顾刚读过的材料。你可以直接继续调查，不影响评价。'));
+  const skip = el('button', 'btn primary', '继续调查');
+  skip.dataset.skipReview = '1';
+  skip.addEventListener('click', finishReview);
+  const start = el('button', 'btn', '回顾刚才的要点');
+  start.dataset.reviewStart = '1';
+  start.addEventListener('click', () => { state.reviewStarted = true; save(); askQuestion(); });
+  controls.append(skip, start);
   settle();
 }
 

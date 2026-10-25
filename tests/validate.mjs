@@ -25,6 +25,7 @@ for (const [id, s] of Object.entries(SCENES)) {
 for (const [id, h] of Object.entries(HUBS)) {
   for (const x of [...h.locations.flatMap((l) => l.items), ...h.people.flatMap((p) => p.talks)]) {
     linesRef(x.lines, `${id}/${x.id}`);
+    if (x.optional && grants(x.lines).some((c) => h.goal.requires.includes(c))) err(`${id}/${x.id}: 补充项目不能发放本轮必需的关键线索`);
     (x.requires ?? []).forEach((c) => clueRef(c, `${id}/${x.id} requires`));
   }
   for (const p of h.people) {
@@ -36,9 +37,11 @@ for (const [id, h] of Object.entries(HUBS)) {
 
 for (const [id, d] of Object.entries(DEDUCTIONS)) {
   if (!SCENES[d.done]) err(`${id}: done 指向不存在的场景 ${d.done}`);
+  if (d.review != null && typeof d.review !== 'boolean') err(`${id}: review 必须是布尔值`);
   d.questions.forEach((q, i) => {
     const where = `${id} 第${i + 1}题`;
     linesRef(q.right ?? [], `${where} right`);
+    if (d.review && (q.testimony || q.link || grants(q.right ?? []).length || (q.replies ?? []).some((r) => grants(r).length))) err(`${where}: 可略过的回顾不能发放线索或推理发现`);
     if (q.wrong) linesRef(q.wrong, `${where} wrong`);
     if (q.options && q.answer !== 'any' && !(q.answer >= 0 && q.answer < q.options.length)) err(`${where}: answer 越界`);
     if (q.answer === 'any' && q.replies && q.replies.length !== q.options.length) err(`${where}: replies 数量和选项不一致`);

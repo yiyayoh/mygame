@@ -13,6 +13,7 @@ import { checkClueWorkflow } from './clue-workflow.mjs';
 import { checkLinks } from './links.mjs';
 import { checkAnswerDrafts } from './answer-drafts.mjs';
 import { checkReading } from './reading.mjs';
+import { checkPacing } from './pacing.mjs';
 import { musicCueFor } from '../js/music.js';
 import { createTestPage } from './browser.mjs';
 
@@ -61,6 +62,10 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
 
     const s = await state();
     if (s && await page.locator('#app').getAttribute('data-music-cue') !== musicCueFor(s)) throw new Error('配乐未随当前场景切换');
+    if (await page.locator('[data-review-start]').count()) {
+      await page.click(mobile ? '[data-skip-review]' : '[data-review-start]');
+      continue;
+    }
     if (s?.mode === 'deduction' && (await page.locator('[data-option], [data-evidence], [data-order-item], [data-link-slot]').count())) {
       const q = DEDUCTIONS[s.ded].questions[s.q];
       if (s.ded === 'd5' && s.findings.some((f) => f.kind === 'link' && f.status !== 'confirmed')) throw new Error('后续材料读完后联结仍未得到印证');
@@ -147,6 +152,7 @@ try {
   await checkLinks(browser, server.url, errors);
   await checkAnswerDrafts(browser, server.url, errors);
   await checkReading(browser, server.url, errors);
+  await checkPacing(browser, server.url, errors);
   await checkMusic(browser, server.url, errors);
   const a = await playOnce(0);
   console.log('✓ 桌面流程完成');

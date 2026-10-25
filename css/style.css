@@ -126,6 +126,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .sub-head { font-size: 13px; color: var(--ink-dim); margin: 4px 0; display: flex; justify-content: space-between; align-items: center; }
 .sub-head button { background: none; border: none; color: var(--ink-dim); font-size: 13px; }
 .goal { margin-top: 10px; font-size: 13px; color: var(--ink-dim); text-align: center; }
+.review-note { margin: 0 0 10px; font-size: var(--reading-size, 15px); color: var(--ink-dim); }
 .testimony-source { margin: 0 0 6px; color: var(--lamp); font-size: 13px; }
 .testimony-statement { padding: 10px 12px; }
 .testimony-statement.picked { border-color: var(--lamp); background: rgba(224,178,90,.09); }
