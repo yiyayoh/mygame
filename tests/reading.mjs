@@ -45,6 +45,7 @@ export async function checkReading(browser, url, errors) {
     await page.locator('#log').hover();
     await page.mouse.wheel(0, -10000);
     await page.locator('#btn-latest:not(.hidden)').waitFor();
+    await page.waitForFunction(() => document.querySelector('#log').scrollTop === 0);
     const before = await page.locator('#log').evaluate((n) => ({ top: n.scrollTop, chars: n.lastElementChild.textContent.length }));
     await page.waitForTimeout(350);
     const after = await page.locator('#log').evaluate((n) => ({ top: n.scrollTop, chars: n.lastElementChild.textContent.length }));
@@ -73,6 +74,22 @@ export async function checkReading(browser, url, errors) {
     await page.keyboard.press('Space');
     await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).playback.index === 1, SAVE_KEY);
     assert.ok(await atLatest(), '明确继续时应跟随最新正文');
+    await page.waitForTimeout(350);
+    assert.ok(await atLatest(), '上一轮键盘翻页不能在继续之后把新句拉出视野');
+
+    // 多次快速翻页再继续，以及原生方向键，均须在真实滚动结束后保持最新位置。
+    for (const key of ['Shift+Space', 'PageUp', 'Home', 'ArrowUp']) {
+      await seed({ history });
+      await page.locator('#next-hint:not(.hidden)').waitFor();
+      await page.locator('#log').focus();
+      await page.keyboard.press(key);
+      assert.equal((await state()).playback.index, 0);
+      if (key !== 'ArrowUp') assert.ok(!await atLatest(), `${key} 应能翻回前文`);
+      await page.keyboard.press('Space');
+      await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).playback.index === 1, SAVE_KEY);
+      await page.waitForTimeout(350);
+      assert.ok(await atLatest(), `${key} 后继续应保持最新位置`);
+    }
 
     // 整句显示同样跟随最新；小屏大字时仍可回到最新，主阅读区不会被挤没。
     await seed({ history });
@@ -115,7 +132,22 @@ export async function checkReading(browser, url, errors) {
     await page.reload();
     assert.ok(await page.locator('#resume-summary').isHidden());
     assert.ok(await page.locator('#btn-continue').isHidden());
-    console.log('✓ 正文选字、滚动跟随、回到最新、快捷键、继续摘要与小屏阅读检查通过');
+
+    // 字号必须覆盖真正需要作答的长选项，且大字小屏仍能到达列表末尾的提交按钮。
+    await seed({ mode: 'deduction', ded: 'd6', q: 0, history: [{ cls: 'question', text: '阅读设置检查' }], playback: null });
+    await page.click('#btn-settings');
+    await page.selectOption('#setting-size', '22');
+    await page.keyboard.press('Escape');
+    for (const [width, height] of [[320, 568], [390, 668]]) {
+      await page.setViewportSize({ width, height });
+      assert.equal(await page.locator('[data-option]').first().evaluate((n) => getComputedStyle(n).fontSize), '22px');
+      assert.ok((await page.locator('#reading-pane').boundingBox()).height > 100);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.locator('[data-confirm]').scrollIntoViewIfNeeded();
+      const confirm = await page.locator('[data-confirm]').boundingBox();
+      assert.ok(confirm.y >= 0 && confirm.y + confirm.height <= height, '大字号时提交按钮仍可滚动到视野内');
+    }
+    console.log('✓ 正文选字、滚动跟随、回到最新、快捷键、继续摘要及小屏大字选项检查通过');
   } finally {
     await page.close();
   }

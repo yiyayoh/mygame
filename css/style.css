@@ -102,6 +102,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   font-size: 15px; text-align: left; line-height: 1.6;
   transition: border-color .2s, background .2s;
 }
+#controls .btn { font-size: var(--reading-size, 15px); }
 .btn:hover:not(:disabled) { border-color: var(--lamp-dim); background: #1d212b; }
 .btn.primary { border-color: var(--lamp-dim); color: var(--lamp); text-align: center; }
 .btn.done { color: var(--ink-dim); }
@@ -128,10 +129,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .testimony-source { margin: 0 0 6px; color: var(--lamp); font-size: 13px; }
 .testimony-statement { padding: 10px 12px; }
 .testimony-statement.picked { border-color: var(--lamp); background: rgba(224,178,90,.09); }
-.testimony-status, .testimony-hints p { font-size: 13px; color: var(--ink-dim); margin: 8px 0; }
+.testimony-status, .testimony-hints p { font-size: var(--reading-size, 13px); color: var(--ink-dim); margin: 8px 0; }
 .testimony-help { margin-top: 10px; }
 .testimony-help .tool { min-height: 40px; }
-.finding-evidence { color: var(--lamp); font-size: 13px; margin: 6px 0; }
+.finding-evidence { color: var(--lamp); font-size: var(--reading-size, 13px); margin: 6px 0; }
 .link-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .link-slot { border-style: dashed; height: 100%; margin: 0; }
 .link-slot > span { display: block; margin: 4px 0; }
@@ -199,7 +200,7 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .clue:last-child { border-bottom: none; }
 .clue-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .clue-type { font-size: 11px; color: var(--bg); background: var(--lamp-dim); border-radius: 3px; padding: 0 6px; line-height: 1.7; }
-.clue-name { font-weight: 600; }
+.clue-name { font-weight: 600; font-size: var(--reading-size, inherit); }
 .clue-text { font-size: var(--reading-size, 14px); color: #bdb7aa; margin: 4px 0 0; line-height: 1.8; }
 .clue-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .clue-actions button { min-height: 36px; }
@@ -207,7 +208,7 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .clue-seen { margin: 4px 0 0; color: var(--ink-dim); font-size: 12px; }
 .nb-tabs { padding: 8px 16px 0; margin: 0; }
 .profile-role { font-size: 12px; color: var(--ink-dim); }
-.order-seq { margin: 4px 0 8px; padding-left: 1.6em; color: var(--lamp); font-size: 14px; }
+.order-seq { margin: 4px 0 8px; padding-left: 1.6em; color: var(--lamp); font-size: var(--reading-size, 14px); }
 .order-seq:empty { display: none; }
 .answer-edit-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .btn.check::before { content: '☐ '; color: var(--ink-dim); }

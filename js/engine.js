@@ -39,6 +39,7 @@ const controls = $('controls');
 const nextHint = $('next-hint');
 const latestButton = $('btn-latest');
 let followLog = true;
+let lastLogTop = 0;
 let typing = null;   // 正在打字的行：{ finish }
 let waiting = null;  // 等待玩家点击继续的 resolve
 let playbackRun = 0;
@@ -78,6 +79,18 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.target.closest('button, input, select, textarea, a')) return;
+  // 原生翻页有延迟动画；改为即时滚动，避免它在下一次「继续」后仍把正文往上拉。
+  if (e.target === log && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && !hasLogSelection()) {
+    const page = Math.max(40, log.clientHeight * .85);
+    const delta = e.key === ' ' && e.shiftKey ? -page : !e.shiftKey ? ({ PageUp: -page, PageDown: page, ArrowUp: -40, ArrowDown: 40, Home: -log.scrollHeight, End: log.scrollHeight })[e.key] : undefined;
+    if (delta !== undefined) {
+      e.preventDefault();
+      followLog = false;
+      log.scrollTo({ top: log.scrollTop + delta, behavior: 'instant' });
+      updateLogPosition();
+      return;
+    }
+  }
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing || hasLogSelection()) return;
   if ((e.key === ' ' || e.key === 'Enter') && (typing || waiting)) { e.preventDefault(); advance(); }
 });
@@ -126,17 +139,34 @@ function dimOld() {
 
 function nearLatest() { return log.scrollHeight - log.clientHeight - log.scrollTop <= 40; }
 function scrollDown() {
-  if (followLog) log.scrollTop = log.scrollHeight;
+  if (followLog) {
+    log.scrollTo({ top: log.scrollHeight, behavior: 'instant' });
+    lastLogTop = log.scrollTop;
+  }
   latestButton.classList.toggle('hidden', followLog || nearLatest());
 }
 function followLatest() {
   followLog = true;
   scrollDown();
 }
-log.addEventListener('scroll', () => {
-  followLog = nearLatest();
-  latestButton.classList.toggle('hidden', followLog);
+function updateLogPosition() {
+  // 新文字换行或阅读区缩小时，距底部增加并不代表玩家主动翻回了前文。
+  if (log.scrollTop < lastLogTop - 1) followLog = false;
+  if (nearLatest()) followLog = true;
+  lastLogTop = log.scrollTop;
+  latestButton.classList.toggle('hidden', followLog || nearLatest());
+}
+log.addEventListener('scroll', updateLogPosition, { passive: true });
+// 滚轮/触摸的滚动事件可能晚于打字回调，先记下向上翻看的意图。
+log.addEventListener('wheel', (e) => { if (e.deltaY < 0) followLog = false; }, { passive: true });
+let lastTouchY = null;
+log.addEventListener('touchstart', (e) => { lastTouchY = e.touches[0]?.clientY ?? null; }, { passive: true });
+log.addEventListener('touchmove', (e) => {
+  const y = e.touches[0]?.clientY;
+  if (lastTouchY !== null && y > lastTouchY) followLog = false;
+  lastTouchY = y ?? null;
 }, { passive: true });
+log.addEventListener('touchend', () => { lastTouchY = null; }, { passive: true });
 latestButton.addEventListener('click', () => { window.getSelection()?.removeAllRanges(); followLatest(); });
 if (typeof ResizeObserver === 'function') new ResizeObserver(scrollDown).observe(log);
 else window.addEventListener('resize', scrollDown);
@@ -155,11 +185,12 @@ function typeInto(node, text) {
   return new Promise((resolve) => {
     const typeMs = FAST ? 0 : settings.typeMs;
     if (!typeMs) { node.textContent = text; scrollDown(); resolve(); return; }
+    scrollDown();
     let i = 0;
     const timer = setInterval(() => {
       i += 1;
       node.textContent = text.slice(0, i);
-      if (i % 8 === 0) scrollDown();
+      scrollDown();
       if (i >= text.length) done();
     }, typeMs);
     const task = { finish: () => done(true), cancel: () => done(false) };
