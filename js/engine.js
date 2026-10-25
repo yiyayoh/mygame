@@ -170,7 +170,7 @@ log.addEventListener('touchend', () => { lastTouchY = null; }, { passive: true }
 latestButton.addEventListener('click', () => { window.getSelection()?.removeAllRanges(); followLatest(); });
 if (typeof ResizeObserver === 'function') new ResizeObserver(scrollDown).observe(log);
 else window.addEventListener('resize', scrollDown);
-const settle = () => requestAnimationFrame(scrollDown);
+const settle = () => { scrollDown(); requestAnimationFrame(scrollDown); };
 
 function addLine(cls, text) {
   const p = el('p', `line ${cls}`);
@@ -201,6 +201,7 @@ function typeInto(node, text) {
 
 function waitClick() {
   nextHint.classList.remove('hidden');
+  scrollDown();
   return new Promise((r) => { waiting = () => { nextHint.classList.add('hidden'); r(); }; });
 }
 

@@ -66,6 +66,14 @@ export async function checkReading(browser, url, errors) {
     await page.locator('#next-hint:not(.hidden)').waitFor();
     assert.ok(await atLatest(), '翻看旧句后返回标题再继续，应回到当前句');
     assert.equal((await state()).playback.index, 0);
+    const immediateGap = await page.evaluate(() => {
+      const log = document.querySelector('#log');
+      log.scrollTop = 0;
+      document.querySelector('#btn-menu').click();
+      document.querySelector('#btn-continue').click();
+      return log.scrollHeight - log.clientHeight - log.scrollTop;
+    });
+    assert.ok(immediateGap <= 40, '当前句可以继续操作时就应定位完成，不依赖下一帧');
     await page.locator('#log').focus();
     await page.keyboard.press('Control+Space');
     assert.equal((await state()).playback.index, 0, '输入法和快捷键组合不能当作继续');
