@@ -37,6 +37,8 @@ const hasAll = (ids = []) => ids.every(has);
 const log = $('log');
 const controls = $('controls');
 const nextHint = $('next-hint');
+const latestButton = $('btn-latest');
+let followLog = true;
 let typing = null;   // 正在打字的行：{ finish }
 let waiting = null;  // 等待玩家点击继续的 resolve
 let playbackRun = 0;
@@ -52,10 +54,17 @@ const settings = {
 
 function advance() {
   if (activeModal || ['title-screen', 'card', 'ending'].some((id) => $(id).classList.contains('show'))) return;
+  if (!typing && !waiting) return;
+  window.getSelection()?.removeAllRanges();
+  followLatest();
   if (typing) typing.finish();
   else if (waiting) { const w = waiting; waiting = null; w(); }
 }
-log.addEventListener('click', advance);
+function hasLogSelection() {
+  const selection = window.getSelection();
+  return selection && !selection.isCollapsed && (log.contains(selection.anchorNode) || log.contains(selection.focusNode));
+}
+log.addEventListener('click', () => { if (!hasLogSelection()) advance(); });
 nextHint.addEventListener('click', advance);
 document.addEventListener('keydown', (e) => {
   if (activeModal) {
@@ -69,6 +78,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.target.closest('button, input, select, textarea, a')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing || hasLogSelection()) return;
   if ((e.key === ' ' || e.key === 'Enter') && (typing || waiting)) { e.preventDefault(); advance(); }
 });
 
@@ -104,7 +114,7 @@ function applySettings() {
 }
 applySettings();
 for (const [id, key] of [['setting-speed', 'typeMs'], ['setting-size', 'fontSize']]) {
-  $(id).addEventListener('change', (e) => { settings[key] = Number(e.target.value); store.set(SETTINGS_KEY, settings); applySettings(); });
+  $(id).addEventListener('change', (e) => { settings[key] = Number(e.target.value); store.set(SETTINGS_KEY, settings); applySettings(); settle(); });
 }
 for (const id of ['btn-settings', 'btn-title-settings']) $(id).addEventListener('click', () => openModal('settings'));
 $('settings-close').addEventListener('click', closeModal);
@@ -114,7 +124,22 @@ function dimOld() {
   log.querySelectorAll('.line:not(.old)').forEach((n) => n.classList.add('old'));
 }
 
-function scrollDown() { log.scrollTop = log.scrollHeight; }
+function nearLatest() { return log.scrollHeight - log.clientHeight - log.scrollTop <= 40; }
+function scrollDown() {
+  if (followLog) log.scrollTop = log.scrollHeight;
+  latestButton.classList.toggle('hidden', followLog || nearLatest());
+}
+function followLatest() {
+  followLog = true;
+  scrollDown();
+}
+log.addEventListener('scroll', () => {
+  followLog = nearLatest();
+  latestButton.classList.toggle('hidden', followLog);
+}, { passive: true });
+latestButton.addEventListener('click', () => { window.getSelection()?.removeAllRanges(); followLatest(); });
+if (typeof ResizeObserver === 'function') new ResizeObserver(scrollDown).observe(log);
+else window.addEventListener('resize', scrollDown);
 const settle = () => requestAnimationFrame(scrollDown);
 
 function addLine(cls, text) {
@@ -129,7 +154,7 @@ function addLine(cls, text) {
 function typeInto(node, text) {
   return new Promise((resolve) => {
     const typeMs = FAST ? 0 : settings.typeMs;
-    if (!typeMs) { node.textContent = text; resolve(); return; }
+    if (!typeMs) { node.textContent = text; scrollDown(); resolve(); return; }
     let i = 0;
     const timer = setInterval(() => {
       i += 1;
@@ -180,6 +205,7 @@ function renderEntry(entry, container) {
 }
 
 function restoreLog() {
+  followLog = true;
   log.replaceChildren();
   for (const entry of state.history.slice(state.logStart)) renderEntry(entry, log);
   dimOld();
@@ -413,6 +439,7 @@ async function chapterCard(title, sub, run) {
   $('card').classList.remove('show');
   await sleep(500);
   if (run !== playbackRun) return;
+  followLog = true;
   log.replaceChildren();
   state.logStart = state.history.length;
   addLine('divider', `${title}　${sub ?? ''}`);
@@ -895,6 +922,15 @@ function showTitle() {
   if (state) { if (!state.completed) save(); cancelPlayback(); }
   const saved = store.get(SAVE_KEY, null);
   $('btn-continue').classList.toggle('hidden', !saved);
+  const summary = $('resume-summary');
+  summary.classList.toggle('hidden', !saved);
+  summary.textContent = '';
+  if (saved) {
+    const chapter = saved.chapter || (saved.mode === 'hub' && HUBS[saved.hub]?.chapter) || '已有调查进度';
+    const mode = { hub: '调查中', deduction: '推理中', scene: '阅读中' }[saved.mode] || '';
+    const count = Array.isArray(saved.clues) ? new Set(saved.clues.filter((id) => CLUES[id])).size : 0;
+    summary.textContent = `${chapter}${mode ? ` · ${mode}` : ''}\n已收集 ${count} 条线索 · 进度保存在当前浏览器`;
+  }
   const endings = store.get(ENDINGS_KEY, []);
   $('endings-got').textContent = endings.length ? `已达成结局：${endings.join('、')}（共 2 个）` : '';
   $('title-screen').classList.add('show');
@@ -902,6 +938,9 @@ function showTitle() {
 
 function resetView() {
   cancelPlayback();
+  followLog = true;
+  latestButton.classList.add('hidden');
+  window.getSelection()?.removeAllRanges();
   if (activeModal === 'notebook') closeNotebook(null);
   else closeModal();
   log.replaceChildren();

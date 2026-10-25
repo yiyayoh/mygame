@@ -21,7 +21,8 @@
       <h1 class="game-title">第七间教室</h1>
       <p class="title-sub">每到周五傍晚 6:07，旧校舍三楼的尽头，会多出一间亮着灯的教室。</p>
       <div class="title-menu">
-        <button id="btn-continue" class="btn hidden">继续调查</button>
+        <p id="resume-summary" class="resume-summary hidden"></p>
+        <button id="btn-continue" class="btn hidden" aria-describedby="resume-summary">继续调查</button>
         <button id="btn-new" class="btn primary">开始调查</button>
         <button id="btn-title-settings" class="tool">阅读设置</button>
         <button id="btn-title-music" class="tool" aria-pressed="false">播放音乐</button>
@@ -63,7 +64,10 @@
       </div>
     </header>
 
-    <main id="log" aria-live="polite" tabindex="-1"></main>
+    <div id="reading-pane">
+      <main id="log" aria-live="polite" tabindex="-1"></main>
+      <button id="btn-latest" class="tool hidden" aria-controls="log">回到最新 ↓</button>
+    </div>
 
     <footer id="panel">
       <div id="next-hint" class="next-hint hidden">▼ 点击继续</div>
