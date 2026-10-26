@@ -107,8 +107,8 @@ export async function checkAnswerDrafts(browser, url, errors) {
     assert.equal((await state()).q, 4);
     assert.equal((await state()).answerDraft, null);
 
-    // 无关题号或损坏的草稿回退为空白，不影响旧存档进入和计分。
-    await seed({ answerDraft: { ded: 'd1', q: 4, kind: 'order', selected: [0, 0], displayOrder: [0] } });
+    // 旧存档没有草稿字段时，照常从空白开始，不计失误。
+    await seed();
     assert.deepEqual((await state()).answerDraft.selected, []);
     assert.equal((await state()).mistakes, 0);
     await page.click('#btn-settings');

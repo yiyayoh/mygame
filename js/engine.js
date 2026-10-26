@@ -45,12 +45,9 @@ let waiting = null;  // 等待玩家点击继续的 resolve
 let playbackRun = 0;
 let activeModal = null;
 let modalFocus = null;
-const savedSettings = store.get(SETTINGS_KEY, {});
 const settings = {
-  typeMs: [0, 16, 32, 60].includes(savedSettings.typeMs) ? savedSettings.typeMs : 32,
-  fontSize: [0, 16, 18, 20, 22].includes(savedSettings.fontSize) ? savedSettings.fontSize : 0,
-  musicEnabled: savedSettings.musicEnabled !== false,
-  musicVolume: Number.isFinite(savedSettings.musicVolume) ? Math.max(0, Math.min(100, savedSettings.musicVolume)) : 35,
+  typeMs: 32, fontSize: 0, musicEnabled: true, musicVolume: 35,
+  ...store.get(SETTINGS_KEY, {}),
 };
 
 function advance() {
@@ -78,9 +75,9 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.target.closest('button, input, select, textarea, a')) return;
+  if (e.target.closest('button, input, select, textarea, a') || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || hasLogSelection()) return;
   // 原生翻页有延迟动画；改为即时滚动，避免它在下一次「继续」后仍把正文往上拉。
-  if (e.target === log && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && !hasLogSelection()) {
+  if (e.target === log) {
     const page = Math.max(40, log.clientHeight * .85);
     const delta = e.key === ' ' && e.shiftKey ? -page : !e.shiftKey ? ({ PageUp: -page, PageDown: page, ArrowUp: -40, ArrowDown: 40, Home: -log.scrollHeight, End: log.scrollHeight })[e.key] : undefined;
     if (delta !== undefined) {
@@ -91,7 +88,7 @@ document.addEventListener('keydown', (e) => {
       return;
     }
   }
-  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing || hasLogSelection()) return;
+  if (e.shiftKey) return;
   if ((e.key === ' ' || e.key === 'Enter') && (typing || waiting)) { e.preventDefault(); advance(); }
 });
 
@@ -127,7 +124,7 @@ function applySettings() {
 }
 applySettings();
 for (const [id, key] of [['setting-speed', 'typeMs'], ['setting-size', 'fontSize']]) {
-  $(id).addEventListener('change', (e) => { settings[key] = Number(e.target.value); store.set(SETTINGS_KEY, settings); applySettings(); settle(); });
+  $(id).addEventListener('change', (e) => { settings[key] = Number(e.target.value); store.set(SETTINGS_KEY, settings); applySettings(); scrollDown(); });
 }
 for (const id of ['btn-settings', 'btn-title-settings']) $(id).addEventListener('click', () => openModal('settings'));
 $('settings-close').addEventListener('click', closeModal);
@@ -159,18 +156,15 @@ function updateLogPosition() {
 log.addEventListener('scroll', updateLogPosition, { passive: true });
 // 滚轮/触摸的滚动事件可能晚于打字回调，先记下向上翻看的意图。
 log.addEventListener('wheel', (e) => { if (e.deltaY < 0) followLog = false; }, { passive: true });
-let lastTouchY = null;
-log.addEventListener('touchstart', (e) => { lastTouchY = e.touches[0]?.clientY ?? null; }, { passive: true });
+let lastTouchY = 0;
+log.addEventListener('touchstart', (e) => { lastTouchY = e.touches[0].clientY; }, { passive: true });
 log.addEventListener('touchmove', (e) => {
-  const y = e.touches[0]?.clientY;
-  if (lastTouchY !== null && y > lastTouchY) followLog = false;
-  lastTouchY = y ?? null;
+  const y = e.touches[0].clientY;
+  if (y > lastTouchY) followLog = false;
+  lastTouchY = y;
 }, { passive: true });
-log.addEventListener('touchend', () => { lastTouchY = null; }, { passive: true });
 latestButton.addEventListener('click', () => { window.getSelection()?.removeAllRanges(); followLatest(); });
-if (typeof ResizeObserver === 'function') new ResizeObserver(scrollDown).observe(log);
-else window.addEventListener('resize', scrollDown);
-const settle = () => { scrollDown(); requestAnimationFrame(scrollDown); };
+new ResizeObserver(scrollDown).observe(log);
 
 function addLine(cls, text) {
   const p = el('p', `line ${cls}`);
@@ -242,7 +236,7 @@ function restoreLog() {
   for (const entry of state.history.slice(state.logStart)) renderEntry(entry, log);
   dimOld();
   log.lastElementChild?.classList.remove('old');
-  settle();
+  scrollDown();
 }
 
 $('btn-history').addEventListener('click', () => {
@@ -512,7 +506,7 @@ function showChoices(choices) {
     b.addEventListener('click', () => runScene(c.to));
     controls.appendChild(b);
   });
-  settle();
+  scrollDown();
 }
 
 // ---------------- 调查 ----------------
@@ -539,13 +533,12 @@ function doAction(key, lines) {
 }
 
 async function present(person) {
-  const hub = state.hub;
   const id = await openNotebook(`向${person.name}出示哪条线索？`, { person });
-  if (!id || state.mode !== 'hub' || state.hub !== hub) return;
+  if (!id) return;
   dimOld();
   addLine('sys', `▷ 向${person.name}出示：${CLUES[id].name}`);
   const reaction = person.present?.[id] ?? [`【${person.name}】……这个，和我有什么关系吗？`];
-  return play(reaction, { type: 'presentation', key: presentationKey(hub, person.id, id) });
+  return play(reaction, { type: 'presentation', key: presentationKey(state.hub, person.id, id) });
 }
 
 function renderHub() {
@@ -625,11 +618,11 @@ function renderHub() {
     help.appendChild(button);
     controls.appendChild(help);
   }
-  settle();
+  scrollDown();
 }
 
 // ---------------- 推理 ----------------
-async function enterDeduction(id) {
+function enterDeduction(id) {
   Object.assign(state, { mode: 'deduction', ded: id, q: 0, testimonyDraft: null, linkDraft: null, answerDraft: null, reviewStarted: !DEDUCTIONS[id].review });
   soundtrack.setCue(musicCueFor(state));
   save();
@@ -653,7 +646,6 @@ function askQuestion() {
 }
 
 function renderAnswers(q) {
-  if (DEDUCTIONS[state.ded].review && state.reviewStarted === false) return renderReviewChoice();
   controls.replaceChildren();
   if (q.testimony) renderTestimony(q);
   else if (q.link) renderLink(q);
@@ -683,11 +675,10 @@ function renderAnswers(q) {
     skip.addEventListener('click', finishReview);
     controls.appendChild(skip);
   }
-  settle();
+  scrollDown();
 }
 
 function finishReview() {
-  Object.assign(state, { reviewStarted: true, testimonyDraft: null, linkDraft: null, answerDraft: null });
   runScene(DEDUCTIONS[state.ded].done);
 }
 
@@ -700,7 +691,7 @@ function renderReviewChoice() {
   start.dataset.reviewStart = '1';
   start.addEventListener('click', () => { state.reviewStarted = true; save(); askQuestion(); });
   controls.append(skip, start);
-  settle();
+  scrollDown();
 }
 
 // 先选陈述，再提交证据；仅选中或切换陈述不判错，也不泄露哪句有问题。
@@ -736,7 +727,7 @@ function renderTestimony(q) {
   evidence.addEventListener('click', async () => {
     const selected = draft.selected;
     const id = await openNotebook(`质疑第 ${selected + 1} 句：${t.statements[selected]}`);
-    if (!id || state.mode !== 'deduction' || state.ded !== draft.ded || state.q !== draft.q || state.playback) return;
+    if (!id) return;
     const correctStatement = selected === t.answer;
     const correct = correctStatement && t.clue.includes(id);
     answer(q, correct, evidence, `质疑「${t.statements[selected]}」 · 出示：${CLUES[id].name}`, undefined, {
@@ -754,7 +745,7 @@ function reasoningHelp(q, draft, tips) {
   hint.disabled = draft.hints >= tips.length;
   if (hint.disabled) hint.textContent = '思路提示已全部展开';
   hint.addEventListener('click', () => {
-    draft.hints = Math.min(tips.length, draft.hints + 1);
+    draft.hints += 1;
     save();
     renderAnswers(q);
     const next = controls.querySelector('[data-deduction-hint]:not(:disabled), .testimony-hints');
@@ -785,7 +776,7 @@ function renderLink(q) {
     b.append(el('small', 'note', `线索 ${index + 1}`), el('span', null, clue ? clue.name : '从线索本选择一条'), el('small', 'note', clue ? `${clue.type} · 点击可查看或更换` : '只使用你已经获得的线索'));
     b.addEventListener('click', async () => {
       const selected = await openNotebook(`选择第 ${index + 1} 条线索，与另一条一起核对。`);
-      if (!selected || state.mode !== 'deduction' || state.ded !== draft.ded || state.q !== draft.q || state.playback) return;
+      if (!selected) return;
       if (draft.selected.some((id, i) => i !== index && id === selected)) return toast('这条线索已经选入');
       draft.selected[index] = selected;
       save();
@@ -804,7 +795,7 @@ function renderLink(q) {
   });
   const confirm = el('button', 'btn primary', '联结这两条线索');
   confirm.dataset.confirm = '1';
-  confirm.disabled = !draft.selected.every((id) => id && has(id)) || new Set(draft.selected).size !== 2;
+  confirm.disabled = !draft.selected.every(Boolean);
   confirm.addEventListener('click', () => {
     const correct = q.link.clues.every((id) => draft.selected.includes(id));
     answer(q, correct, confirm, `联结：${draft.selected.map((id) => CLUES[id].name).join(' ＋ ')}`, undefined, { linkClues: correct ? [...draft.selected] : null });
@@ -829,12 +820,11 @@ function recordFinding(q, clue) {
 }
 
 function getAnswerDraft(q, kind) {
-  const count = (q.order ?? q.multi).length;
-  const valid = (items) => Array.isArray(items) && new Set(items).size === items.length && items.every((i) => Number.isInteger(i) && i >= 0 && i < count);
   const current = state.answerDraft;
-  if (current?.ded === state.ded && current.q === state.q && current.kind === kind && valid(current.selected) && (kind !== 'order' || (valid(current.displayOrder) && current.displayOrder.length === count))) return current;
+  if (current?.ded === state.ded && current.q === state.q && current.kind === kind) return current;
   const draft = { ded: state.ded, q: state.q, kind, selected: [] };
   if (kind === 'order') {
+    const count = q.order.length;
     draft.displayOrder = Array.from({ length: count }, (_, i) => i);
     for (let k = count - 1; k > 0; k--) {
       const j = Math.floor(Math.random() * (k + 1));
@@ -884,7 +874,7 @@ function renderOrder(q) {
     undo.disabled = reset.disabled = picked.length === 0;
     confirm.disabled = picked.length !== q.order.length;
     save();
-    settle();
+    scrollDown();
   }
   const edits = el('div', 'answer-edit-tools');
   edits.append(undo, reset);
@@ -1028,7 +1018,8 @@ function resume() {
     renderHub();
   }
   else if (state.mode === 'deduction') {
-    if (state.history.length && DEDUCTIONS[state.ded].questions[state.q]) renderAnswers(DEDUCTIONS[state.ded].questions[state.q]);
+    const q = DEDUCTIONS[state.ded].questions[state.q];
+    if (state.reviewStarted && state.history.length && q) renderAnswers(q);
     else askQuestion();
   }
   else if (state.sceneComplete) finishScene(state.scene);
@@ -1081,7 +1072,7 @@ $('music-volume').addEventListener('input', (e) => {
   soundtrack.setVolume(settings.musicVolume / 100);
 });
 const unlockAudio = (e) => {
-  if (e?.target.closest('#btn-music, #btn-title-music')) return;
+  if (e.target.closest('#btn-music, #btn-title-music')) return;
   if (settings.musicEnabled || soundBtn.getAttribute('aria-pressed') === 'true') void soundtrack.unlock();
 };
 document.addEventListener('pointerdown', unlockAudio, { capture: true });

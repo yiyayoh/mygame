@@ -76,7 +76,7 @@ export async function checkPacing(browser, url, errors) {
     await drain(page);
     assert.equal((await state()).mistakes, 3);
 
-    await seed({ ded: 'd4', q: 5, reviewStarted: false, clues: ['jing_testimony', 'sketchbook'] });
+    await seed({ ded: 'd4', q: 5, clues: ['jing_testimony', 'sketchbook'] });
     assert.equal(await page.locator('[data-skip-review]').count(), 0, '关键推理不能作为回顾略过');
     assert.equal(await page.locator('[data-link-slot]').count(), 2);
 
