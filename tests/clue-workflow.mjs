@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { CLUES } from '../js/story.js';
 import { createTestPage } from './browser.mjs';
 
 const SAVE_KEY = 'seventh-classroom/save';
@@ -43,11 +44,22 @@ export async function checkClueWorkflow(browser, url, errors) {
     assert.equal(await page.locator('#nb-list .clue').count(), 1);
     await page.fill('#nb-search', '不会匹配的关键词');
     assert.equal(await page.locator('#nb-list .clue').count(), 0);
-    await page.fill('#nb-search', '');
+    await page.fill('#nb-search', CLUES.gu_umbrella.name);
+    await page.keyboard.press('Escape');
+    await page.click('[data-present="gu"]');
+    assert.equal(await page.locator('#nb-search').inputValue(), CLUES.gu_umbrella.name, '出示时应带入刚才的搜索词');
+    assert.equal(await page.locator('#nb-list .clue').count(), 1);
+    await page.selectOption('#nb-type', CLUES.gu_umbrella.type);
+    await page.click('#nb-marked');
+    await page.click('#nb-clear');
+    assert.equal(await page.locator('#nb-search').inputValue(), '');
+    assert.equal(await page.locator('#nb-type').inputValue(), '');
+    assert.equal(await page.locator('#nb-marked').getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.locator('#nb-list .clue').count(), 3, '清除筛选后可以选择所有已获得的线索');
     await page.keyboard.press('Escape');
     await resume();
     await page.click('[data-present="gu"]');
-    assert.equal(await page.locator('#nb-marked').getAttribute('aria-pressed'), 'false', '每次打开重置筛选，避免隐藏其他证据');
+    assert.equal(await page.locator('#nb-marked').getAttribute('aria-pressed'), 'false', '每次打开重置只看标记');
     assert.equal(await page.locator('#nb-list .clue').count(), 3);
     assert.equal(await page.locator('[data-pin="gu_umbrella"]').getAttribute('aria-pressed'), 'true', '标记本身应永久保留');
     await page.locator('[data-pin="letters"]').focus();

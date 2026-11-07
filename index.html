@@ -26,13 +26,14 @@
         <button id="btn-new" class="btn primary">开始调查</button>
         <button id="btn-title-settings" class="tool">阅读设置</button>
         <button id="btn-title-music" class="tool" aria-pressed="false">播放音乐</button>
+        <button id="btn-reports" class="tool hidden">通关记录</button>
       </div>
       <p id="endings-got" class="title-foot"></p>
     </div>
   </section>
 
   <!-- 章节卡 -->
-  <section id="card" class="overlay">
+  <section id="card" class="overlay" tabindex="-1" aria-labelledby="card-title card-sub" inert>
     <div class="card-inner">
       <p id="card-title" class="card-title"></p>
       <p id="card-sub" class="card-sub"></p>
@@ -40,7 +41,7 @@
   </section>
 
   <!-- 结局 -->
-  <section id="ending" class="overlay">
+  <section id="ending" class="overlay" inert>
     <div class="card-inner">
       <p class="card-title">END</p>
       <p id="ending-name" class="ending-name"></p>
@@ -50,7 +51,7 @@
     </div>
   </section>
 
-  <div id="app">
+  <div id="app" inert>
     <header id="topbar">
       <div class="where">
         <span id="chapter-label">第七间教室</span>
@@ -93,6 +94,7 @@
         <select id="nb-type" aria-label="按线索类别筛选"></select>
         <div class="nb-summary">
           <button id="nb-marked" class="tool" aria-pressed="false">只看标记</button>
+          <button id="nb-clear" class="tool">清除筛选</button>
           <p id="nb-count" aria-live="polite"></p>
         </div>
       </div>
@@ -144,6 +146,16 @@
         <button id="btn-sound" class="tool" aria-pressed="false">开启雨声</button>
         <p class="settings-note">设置会自动记住。点击正文或按空格可显示整句，再次操作继续阅读。</p>
       </div>
+    </div>
+  </section>
+
+  <section id="reports" class="modal" role="dialog" aria-modal="true" aria-labelledby="reports-title">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="reports-title">通关记录</h2>
+        <button id="reports-close" class="tool">关闭</button>
+      </div>
+      <div id="reports-list" tabindex="0" aria-label="已完成的调查"></div>
     </div>
   </section>
 

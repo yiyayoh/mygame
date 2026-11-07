@@ -48,9 +48,17 @@ async function playOnce(choiceIndex, { mobile = false } = {}) {
       await page.waitForTimeout(900);
       await shot('ending');
       const text = await page.locator('#ending').innerText();
+      const stats = await page.locator('#ending-stats').innerText();
+      const name = await page.locator('#ending-name').innerText();
+      await page.keyboard.press('Tab');
+      if (!await page.evaluate(() => document.activeElement === document.body || document.querySelector('#ending').contains(document.activeElement))) throw new Error('结算时键盘焦点进入了其他画面');
       await page.click('#btn-title');
       if (await page.locator('#app').getAttribute('data-music-cue') !== 'title') throw new Error('回到标题时配乐未切回');
       if (await state() || await page.locator('#btn-continue:not(.hidden)').count()) throw new Error('完成流程后不应恢复已经结束的存档');
+      await page.reload();
+      await page.click('#btn-reports');
+      if (await page.locator('#reports-list h3').innerText() !== name || await page.locator('#reports-list .report-stats').innerText() !== stats) throw new Error('刷新后通关记录应保留本局结算');
+      if (!(await page.locator('#reports-list [data-finding]').count())) throw new Error('通关记录缺少本局的推理成果');
       await page.close();
       return text;
     }

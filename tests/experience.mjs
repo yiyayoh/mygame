@@ -35,6 +35,10 @@ export async function checkExperience(browser, url, errors) {
     await page.goto(`${url}/?fast`);
     const icon = await page.request.get(`${url}/assets/favicon.svg`);
     assert.equal(icon.status(), 200, '网站图标应可加载');
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Tab');
+      assert.ok(await page.evaluate(() => document.activeElement === document.body || document.querySelector('#title-screen').contains(document.activeElement)), '标题页的 Tab 不应进入其他画面');
+    }
 
     // 没有新字段的旧存档仍可进入；当前句在刷新后恢复，继续时不重复。
     await seed({});
@@ -56,6 +60,10 @@ export async function checkExperience(browser, url, errors) {
     assert.equal((await state()).history.filter((e) => e.raw === currentRaw).length, 1, '恢复当前句不应重复记入回看');
     await drain(page);
     assert.equal((await state()).hub, 'hub1');
+    await page.setViewportSize({ width: 320, height: 568 });
+    const hintButton = await page.locator('[data-hint]').boundingBox();
+    assert.ok(hintButton.y >= 0 && hintButton.y + hintButton.height <= 568, '小屏进入调查时无需滚动就能看到求助');
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.click('#btn-history');
     const history = await page.locator('#history-list').innerText();
     assert.ok(history.includes(SCENES.prologue.lines[1]), '回看应保留上一章正文');

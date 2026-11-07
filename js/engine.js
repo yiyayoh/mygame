@@ -6,6 +6,7 @@ import { MusicDirector, musicCueFor } from './music.js';
 const FAST = new URLSearchParams(location.search).has('fast'); // 自动化测试用：跳过打字和动画
 const SAVE_KEY = 'seventh-classroom/save';
 const ENDINGS_KEY = 'seventh-classroom/endings';
+const REPORTS_KEY = 'seventh-classroom/reports';
 const SETTINGS_KEY = 'seventh-classroom/settings';
 
 const $ = (id) => document.getElementById(id);
@@ -35,6 +36,8 @@ const hasAll = (ids = []) => ids.every(has);
 
 // ---------------- 文本输出 ----------------
 const log = $('log');
+const app = $('app');
+const overlays = [...document.querySelectorAll('.overlay')];
 const controls = $('controls');
 const nextHint = $('next-hint');
 const latestButton = $('btn-latest');
@@ -51,7 +54,7 @@ const settings = {
 };
 
 function advance() {
-  if (activeModal || ['title-screen', 'card', 'ending'].some((id) => $(id).classList.contains('show'))) return;
+  if (app.inert) return;
   if (!typing && !waiting) return;
   window.getSelection()?.removeAllRanges();
   followLatest();
@@ -92,14 +95,24 @@ document.addEventListener('keydown', (e) => {
   if ((e.key === ' ' || e.key === 'Enter') && (typing || waiting)) { e.preventDefault(); advance(); }
 });
 
+function syncScreenInert() {
+  const current = overlays.find((screen) => screen.classList.contains('show')) ?? app;
+  for (const screen of [...overlays, app]) screen.inert = activeModal !== null || screen !== current;
+}
+
+function showScreen(id, focus) {
+  for (const screen of overlays) screen.classList.toggle('show', screen.id === id);
+  syncScreenInert();
+  $(focus).focus({ preventScroll: true });
+}
+
 function openModal(id) {
   if (activeModal) return false;
   typing?.finish();
   modalFocus = document.activeElement;
   activeModal = id;
   $(id).classList.add('show');
-  $('app').inert = true;
-  $('title-screen').inert = true;
+  syncScreenInert();
   $(id).querySelector('button, input, select')?.focus();
   return true;
 }
@@ -108,8 +121,7 @@ function closeModal() {
   if (!activeModal) return;
   $(activeModal).classList.remove('show');
   activeModal = null;
-  $('app').inert = false;
-  $('title-screen').inert = false;
+  syncScreenInert();
   if (modalFocus?.isConnected) modalFocus.focus();
   modalFocus = null;
 }
@@ -128,7 +140,7 @@ for (const [id, key] of [['setting-speed', 'typeMs'], ['setting-size', 'fontSize
 }
 for (const id of ['btn-settings', 'btn-title-settings']) $(id).addEventListener('click', () => openModal('settings'));
 $('settings-close').addEventListener('click', closeModal);
-for (const id of ['history', 'settings']) $(id).addEventListener('click', (e) => { if (e.target.id === id) closeModal(); });
+for (const id of ['history', 'settings', 'reports']) $(id).addEventListener('click', (e) => { if (e.target.id === id) closeModal(); });
 
 function dimOld() {
   log.querySelectorAll('.line:not(.old)').forEach((n) => n.classList.add('old'));
@@ -255,7 +267,6 @@ function cancelPlayback() {
   waiting?.();
   waiting = null;
   nextHint.classList.add('hidden');
-  $('card').classList.remove('show');
 }
 
 function play(lines = [], after = { type: 'hub' }) {
@@ -393,9 +404,9 @@ function renderProfiles(list) {
   }
 }
 
-function renderFindings(list) {
-  if (!state.findings.length) list.appendChild(el('p', 'empty', '还没有推理记录。成立的质疑、你联结的线索与推测会留在这里。'));
-  for (const finding of state.findings) {
+function renderFindings(list, findings) {
+  if (!findings.length) list.appendChild(el('p', 'empty', '还没有推理记录。成立的质疑、你联结的线索与推测会留在这里。'));
+  for (const finding of findings) {
     const item = el('article', 'clue finding');
     item.dataset.finding = finding.id;
     item.appendChild(el('strong', 'clue-name', finding.title));
@@ -412,7 +423,6 @@ function renderFindings(list) {
 function openNotebook(selectHint, { person = null } = {}) {
   if (!state || !openModal('notebook')) return Promise.resolve(null);
   let onlyPinned = false;
-  $('nb-search').value = '';
   $('nb-type').replaceChildren(el('option', null, '全部类别'));
   $('nb-type').firstElementChild.value = '';
   for (const type of new Set(state.clues.map((id) => CLUES[id].type))) {
@@ -431,12 +441,18 @@ function openNotebook(selectHint, { person = null } = {}) {
     tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.nbtab === notebookTab));
     if (selectHint || notebookTab === 'clues') renderClues(list, Boolean(selectHint), { onlyPinned, person, redraw: draw });
     else if (notebookTab === 'people') renderProfiles(list);
-    else renderFindings(list);
+    else renderFindings(list, state.findings);
     list.scrollTop = 0;
   };
   $('nb-search').oninput = draw;
   $('nb-type').onchange = draw;
   $('nb-marked').onclick = () => { onlyPinned = !onlyPinned; draw(); };
+  $('nb-clear').onclick = () => {
+    $('nb-search').value = $('nb-type').value = '';
+    onlyPinned = false;
+    draw();
+    $('nb-search').focus();
+  };
   $('nb-tabs').onclick = (e) => {
     const t = e.target.dataset?.nbtab;
     if (t) { notebookTab = t; draw(); }
@@ -459,10 +475,10 @@ async function chapterCard(title, sub, run) {
   updateTopbar();
   $('card-title').textContent = title;
   $('card-sub').textContent = sub ?? '';
-  $('card').classList.add('show');
+  showScreen('card', 'card');
   await sleep(2200);
   if (run !== playbackRun) return;
-  $('card').classList.remove('show');
+  showScreen('app', 'log');
   await sleep(500);
   if (run !== playbackRun) return;
   followLog = true;
@@ -545,6 +561,29 @@ function renderHub() {
   const hub = HUBS[state.hub];
   controls.replaceChildren();
 
+  const need = hub.goal.requires;
+  const got = need.filter(has).length;
+  if (got === need.length) {
+    const button = el('button', 'btn primary', hub.goal.label ?? '整理线索，开始推理');
+    button.dataset.goal = '1';
+    button.addEventListener('click', () => (hub.goal.deduction ? enterDeduction(hub.goal.deduction) : runScene(hub.goal.scene)));
+    controls.appendChild(button);
+  } else {
+    const help = el('div', 'investigation-help');
+    const status = el('div', 'investigation-status');
+    const button = el('button', 'tool', '调查没有进展？');
+    button.dataset.hint = '1';
+    const hint = el('p', 'hidden');
+    button.addEventListener('click', () => {
+      const pending = [...hub.locations.flatMap((g) => g.items), ...hub.people.flatMap((g) => g.talks)].some((x) => !x.optional && hasAll(x.requires) && !state.done.includes(`${state.hub}:${x.id}`));
+      hint.textContent = pending ? '【宋小满】先看看地点和人物里还有没有未读的项目。新拿到的线索，也可能让之前的话题有了新的进展。' : '【宋小满】有些证词还需要拿证据核对。进入人物页面，试试「出示线索」，对照已经听过的话。补充谈话可以稍后再看。';
+      hint.classList.remove('hidden');
+    });
+    status.append(el('span', 'goal', `${hub.goal.deduction ? '推理所需的' : '需要找到的'}关键线索：${got} / ${need.length}`), button);
+    help.append(status, hint);
+    controls.appendChild(help);
+  }
+
   const tabs = el('div', 'tabs');
   for (const [key, label] of [['loc', '地点'], ['people', '人物']]) {
     const t = el('button', state.hubTab === key ? 'on' : '', label);
@@ -596,28 +635,7 @@ function renderHub() {
     if (state.hubTab === 'people') controls.appendChild(el('p', 'goal', '询问之外，也可以向对方出示线索，核对证词或追问。'));
   }
 
-  const need = hub.goal.requires;
-  const got = need.filter(has).length;
-  if (got === need.length) {
-    // goal 可以通往推理，也可以直接通往下一段剧情
-    const b = el('button', 'btn primary', hub.goal.label ?? '整理线索，开始推理');
-    b.dataset.goal = '1';
-    b.addEventListener('click', () => (hub.goal.deduction ? enterDeduction(hub.goal.deduction) : runScene(hub.goal.scene)));
-    controls.appendChild(b);
-  } else {
-    controls.appendChild(el('p', 'goal', `${hub.goal.deduction ? '推理所需的' : '需要找到的'}关键线索：${got} / ${need.length}`));
-    const help = el('div', 'investigation-help');
-    const button = el('button', 'tool', '调查没有进展？');
-    button.dataset.hint = '1';
-    button.addEventListener('click', () => {
-      const pending = [...hub.locations.flatMap((g) => g.items), ...hub.people.flatMap((g) => g.talks)].some((x) => !x.optional && hasAll(x.requires) && !state.done.includes(`${state.hub}:${x.id}`));
-      const text = pending ? '【宋小满】先看看地点和人物里还有没有未读的项目。新拿到的线索，也可能让之前的话题有了新的进展。' : '【宋小满】有些证词还需要拿证据核对。进入人物页面，试试「出示线索」，对照已经听过的话。补充谈话可以稍后再看。';
-      help.querySelector('p')?.remove();
-      help.appendChild(el('p', null, text));
-    });
-    help.appendChild(button);
-    controls.appendChild(help);
-  }
+  $('panel').scrollTop = 0;
   scrollDown();
 }
 
@@ -945,24 +963,51 @@ function rating(m) {
   return '新人刑警';
 }
 
+function renderReportStats(list, report) {
+  list.replaceChildren();
+  const linked = report.findings.filter((f) => f.kind === 'link').length;
+  for (const [label, value] of [
+    ['收集线索', `${report.clues} / ${report.totalClues}`],
+    ['发现矛盾', `${report.findings.length - linked} 处`],
+    ['线索联结', `${linked} 组`],
+    ['推理失误', `${report.mistakes} 次`],
+    ['评价', rating(report.mistakes)],
+  ]) {
+    const row = el('div');
+    row.append(`${label}：`, el('b', null, value));
+    list.appendChild(row);
+  }
+}
+
 function showEnding(ending) {
   state.completed = true;
   const endings = store.get(ENDINGS_KEY, []);
   if (!endings.includes(ending.name)) store.set(ENDINGS_KEY, [...endings, ending.name]);
   $('ending-name').textContent = ending.name;
   $('ending-sub').textContent = ending.sub;
-  const stats = $('ending-stats');
-  stats.replaceChildren();
-  const total = Object.keys(CLUES).length;
-  const linked = state.findings.filter((f) => f.kind === 'link').length;
-  for (const [k, v] of [['收集线索', `${state.clues.length} / ${total}`], ['发现矛盾', `${state.findings.length - linked} 处`], ['线索联结', `${linked} 组`], ['推理失误', `${state.mistakes} 次`], ['评价', rating(state.mistakes)]]) {
-    const row = el('div');
-    row.append(`${k}：`, el('b', null, v));
-    stats.appendChild(row);
-  }
+  const report = { ending: ending.name, clues: state.clues.length, totalClues: Object.keys(CLUES).length, findings: state.findings, mistakes: state.mistakes };
+  const reports = store.get(REPORTS_KEY, []).filter((entry) => entry.ending !== ending.name);
+  store.set(REPORTS_KEY, [report, ...reports]);
+  renderReportStats($('ending-stats'), report);
   store.set(SAVE_KEY, null);
-  $('ending').classList.add('show');
+  showScreen('ending', 'btn-title');
 }
+
+$('btn-reports').addEventListener('click', () => {
+  if (!openModal('reports')) return;
+  const list = $('reports-list');
+  list.replaceChildren();
+  for (const report of store.get(REPORTS_KEY, [])) {
+    const entry = el('section', 'report-entry');
+    const stats = el('div', 'report-stats');
+    renderReportStats(stats, report);
+    entry.append(el('h3', null, report.ending), stats);
+    renderFindings(entry, report.findings);
+    list.appendChild(entry);
+  }
+  list.scrollTop = 0;
+});
+$('reports-close').addEventListener('click', closeModal);
 
 // ---------------- 标题 / 启动 ----------------
 function showTitle() {
@@ -981,7 +1026,8 @@ function showTitle() {
   }
   const endings = store.get(ENDINGS_KEY, []);
   $('endings-got').textContent = endings.length ? `已达成结局：${endings.join('、')}（共 2 个）` : '';
-  $('title-screen').classList.add('show');
+  $('btn-reports').classList.toggle('hidden', !store.get(REPORTS_KEY, []).length);
+  showScreen('title-screen', saved ? 'btn-continue' : 'btn-new');
 }
 
 function resetView() {
@@ -997,10 +1043,10 @@ function resetView() {
 
 function startNew() {
   state = freshState();
+  $('nb-search').value = '';
   resetView();
   updateTopbar();
-  $('title-screen').classList.remove('show');
-  $('log').focus();
+  showScreen('app', 'log');
   runScene(state.scene);
 }
 
@@ -1009,8 +1055,7 @@ function resume() {
   soundtrack.setCue(musicCueFor(state));
   resetView();
   updateTopbar();
-  $('title-screen').classList.remove('show');
-  $('log').focus();
+  showScreen('app', 'log');
   restoreLog();
   if (state.playback) continuePlayback();
   else if (state.mode === 'hub') {
@@ -1032,7 +1077,7 @@ $('btn-new').addEventListener('click', () => {
 });
 $('btn-continue').addEventListener('click', resume);
 $('btn-menu').addEventListener('click', showTitle);
-$('btn-title').addEventListener('click', () => { $('ending').classList.remove('show'); showTitle(); });
+$('btn-title').addEventListener('click', showTitle);
 
 // 音乐和雨声共用一个音频上下文，分别控制音量；只在用户操作后启用声音。
 const soundtrack = new MusicDirector({ enabled: settings.musicEnabled, volume: settings.musicVolume / 100, onChange: syncMusicUI });
